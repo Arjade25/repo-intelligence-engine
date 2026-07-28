@@ -1,0 +1,38 @@
+{
+  "repo": {
+    "name": "TODO — pick an import-dense mid-size TS repo (plan §12)",
+    "url": "",
+    "commit": ""
+  },
+  "protocol": {
+    "runs_per_arm": 5,
+    "arms": ["baseline", "assisted"],
+    "note": "Fresh session per run; baseline and assisted for a task never share a session (plan §8/B)."
+  },
+  "tasks": [
+    {
+      "id": "login-flow",
+      "prompt": "How does login work in this repo?",
+      "oracle": {
+        "description": "The function/class that actually performs authentication.",
+        "files": ["TODO/path/to/auth.ts:0"]
+      }
+    },
+    {
+      "id": "authservice-impact",
+      "prompt": "What breaks if I change AuthService?",
+      "oracle": {
+        "description": "The set of files that import/use AuthService.",
+        "files": ["TODO"]
+      }
+    },
+    {
+      "id": "userrepository-uses",
+      "prompt": "Where is UserRepository used?",
+      "oracle": {
+        "description": "Every call/usage site of UserRepository.",
+        "files": ["TODO"]
+      }
+    }
+  ]
+}

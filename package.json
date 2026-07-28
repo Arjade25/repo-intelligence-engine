@@ -1,0 +1,32 @@
+{
+  "name": "repo-intelligence-engine",
+  "version": "0.1.0",
+  "description": "A TypeScript repository indexing engine that builds a structural model of a codebase and exposes it to AI coding agents through an MCP server.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "rie-mcp": "./dist/mcp-server/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "index": "tsx src/indexer/cli.ts",
+    "mcp": "tsx src/mcp-server/index.ts",
+    "bench": "tsx benchmarks/run.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "better-sqlite3": "^11.0.0",
+    "typescript": "^5.4.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "vitest": "^2.0.0"
+  }
+}
