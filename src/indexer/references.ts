@@ -1,5 +1,6 @@
 import ts from "typescript";
 import type Database from "better-sqlite3";
+import { getTopLevelDeclarations, normalizePath } from "./index.js";
 
 /**
  * Reference indexer (plan §4, mode 2): backs find_symbol_references.
@@ -37,7 +38,62 @@ export function createLanguageService(fileNames: string[], options: ts.CompilerO
   return ts.createLanguageService(host, ts.createDocumentRegistry());
 }
 
-/** TODO(step 3): for each symbol, look up its declaration position, call the LS, write references_. */
-export function indexReferences(_db: Database.Database, _service: ts.LanguageService): void {
-  // for each symbol row: service.getReferencesAtPosition(file, pos) -> INSERT INTO references_
+/**
+ * For each top-level declaration, re-find its identifier position (same walk
+ * extractSymbols used, via getTopLevelDeclarations), look up the matching symbols
+ * row by (name, file_path, line_start), then call findReferences at that position
+ * and record every usage site — excluding the declaration's own occurrence, since
+ * find_module already covers "where is X declared" and references_ is "where is
+ * X used".
+ */
+export function indexReferences(db: Database.Database, service: ts.LanguageService): void {
+  const program = service.getProgram();
+  if (!program) return;
+
+  const findSymbolId = db.prepare(
+    `SELECT id FROM symbols WHERE name = ? AND file_path = ? AND line_start = ?`
+  );
+  const insertRef = db.prepare(`INSERT INTO references_ (symbol_id, used_in_file, line) VALUES (?, ?, ?)`);
+
+  const sourceFiles = program
+    .getSourceFiles()
+    .filter((sf) => !sf.isDeclarationFile && !program.isSourceFileFromExternalLibrary(sf));
+
+  for (const sourceFile of sourceFiles) {
+    const filePath = normalizePath(sourceFile.fileName);
+
+    for (const decl of getTopLevelDeclarations(sourceFile)) {
+      const lineStart = sourceFile.getLineAndCharacterOfPosition(decl.node.getStart(sourceFile)).line + 1;
+      const symbolRow = findSymbolId.get(decl.name, filePath, lineStart) as { id: number } | undefined;
+      if (!symbolRow) continue; // extractSymbols didn't record this - shouldn't happen if run first
+
+      const namePos = decl.nameNode.getStart(sourceFile);
+      const referencedSymbols = service.findReferences(sourceFile.fileName, namePos);
+      if (!referencedSymbols) continue;
+
+      // findReferences does NOT return one merged group: a named import elsewhere
+      // creates a separate "alias" symbol group (definition = the import binding,
+      // not our declaration), even for a plain direct import - not just barrels.
+      // Take the union of every group's references so cross-file uses aren't
+      // dropped, deduped by (file, position), excluding only this declaration's
+      // own occurrence (find_module already covers "where is X declared").
+      const seen = new Set<string>();
+      for (const group of referencedSymbols) {
+        for (const ref of group.references) {
+          const refFile = normalizePath(ref.fileName);
+          if (refFile === filePath && ref.textSpan.start === namePos) continue;
+
+          const key = `${refFile}:${ref.textSpan.start}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+
+          const refSourceFile = program.getSourceFile(ref.fileName);
+          const line = refSourceFile
+            ? refSourceFile.getLineAndCharacterOfPosition(ref.textSpan.start).line + 1
+            : null;
+          insertRef.run(symbolRow.id, refFile, line);
+        }
+      }
+    }
+  }
 }

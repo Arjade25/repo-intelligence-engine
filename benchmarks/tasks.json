@@ -1,37 +1,86 @@
 {
   "repo": {
-    "name": "TODO — pick an import-dense mid-size TS repo (plan §12)",
-    "url": "",
-    "commit": ""
+    "name": "nestjs-realworld-example-app",
+    "url": "https://github.com/lujakob/nestjs-realworld-example-app.git",
+    "commit": "c1c2cc4e448b279ff083272df1ac50d20c3304fa",
+    "tsconfig": "tsconfig.json",
+    "note": "NestJS + TypeORM implementation of the RealWorld spec (~35 TS files: articles, comments, profiles, follows, tags, JWT auth) - real service/repository layering and barrel dto/index.ts files, chosen per plan §12 for import density (not JS, not a huge monorepo)."
   },
   "protocol": {
     "runs_per_arm": 5,
     "arms": ["baseline", "assisted"],
-    "note": "Fresh session per run; baseline and assisted for a task never share a session (plan §8/B)."
+    "note": "Fresh session per run (fresh --session-id, no --continue/--resume); baseline and assisted for a task never share a session (plan §8/B)."
   },
   "tasks": [
     {
       "id": "login-flow",
-      "prompt": "How does login work in this repo?",
+      "prompt": "How does user login work in this codebase? Name the specific file and function that handles a login request.",
       "oracle": {
-        "description": "The function/class that actually performs authentication.",
-        "files": ["TODO/path/to/auth.ts:0"]
+        "description": "UserController.login() (src/user/user.controller.ts) handles POST users/login; it calls UserService.findOne() to verify credentials and UserService.generateJWT() to issue the token (both in src/user/user.service.ts).",
+        "files": ["src/user/user.controller.ts:43", "src/user/user.service.ts:25", "src/user/user.service.ts:103"]
       }
     },
     {
-      "id": "authservice-impact",
-      "prompt": "What breaks if I change AuthService?",
+      "id": "userservice-uses",
+      "prompt": "Where is UserService used across the codebase?",
       "oracle": {
-        "description": "The set of files that import/use AuthService.",
-        "files": ["TODO"]
+        "description": "Every file that imports/injects UserService, besides its own declaration.",
+        "files": ["src/user/auth.middleware.ts", "src/user/user.controller.ts", "src/user/user.module.ts"]
       }
     },
     {
-      "id": "userrepository-uses",
-      "prompt": "Where is UserRepository used?",
+      "id": "userentity-impact",
+      "prompt": "What files would be affected if I changed the UserEntity class?",
       "oracle": {
-        "description": "Every call/usage site of UserRepository.",
-        "files": ["TODO"]
+        "description": "Every file that imports UserEntity, besides its own declaration file.",
+        "files": [
+          "src/article/article.entity.ts",
+          "src/article/article.module.ts",
+          "src/article/article.service.ts",
+          "src/profile/profile.module.ts",
+          "src/profile/profile.service.ts",
+          "src/user/user.module.ts",
+          "src/user/user.service.ts"
+        ]
+      }
+    },
+    {
+      "id": "createarticledto-barrel",
+      "prompt": "Where is CreateArticleDto actually defined, and where is it used? Note it's imported from a barrel file.",
+      "oracle": {
+        "description": "Really declared in src/article/dto/create-article.dto.ts, re-exported through the barrel src/article/dto/index.ts, and used in article.controller.ts (create/update handlers) and article.service.ts (create()).",
+        "files": [
+          "src/article/dto/create-article.dto.ts",
+          "src/article/dto/index.ts",
+          "src/article/article.controller.ts",
+          "src/article/article.service.ts"
+        ]
+      }
+    },
+    {
+      "id": "article-to-user-path",
+      "prompt": "Is there an import dependency path from ArticleService to UserEntity? If so, what is it?",
+      "oracle": {
+        "description": "Yes, direct: src/article/article.service.ts imports UserEntity straight from src/user/user.entity.ts (one hop, no intermediate file).",
+        "files": ["src/article/article.service.ts", "src/user/user.entity.ts"]
+      }
+    },
+    {
+      "id": "article-module-related",
+      "prompt": "What does src/article/article.module.ts import, and what imports it?",
+      "oracle": {
+        "description": "Imports: article.controller.ts, article.entity.ts, comment.entity.ts, ../user/user.entity.ts, ../profile/follows.entity.ts, article.service.ts, ../user/auth.middleware.ts, ../user/user.module.ts (plus @nestjs/* packages). Imported by: src/app.module.ts.",
+        "files": [
+          "src/article/article.controller.ts",
+          "src/article/article.entity.ts",
+          "src/article/comment.entity.ts",
+          "src/user/user.entity.ts",
+          "src/profile/follows.entity.ts",
+          "src/article/article.service.ts",
+          "src/user/auth.middleware.ts",
+          "src/user/user.module.ts",
+          "src/app.module.ts"
+        ]
       }
     }
   ]

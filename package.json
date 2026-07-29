@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "postbuild": "node -e \"require('fs').mkdirSync('dist/storage',{recursive:true});require('fs').copyFileSync('src/storage/schema.sql','dist/storage/schema.sql')\"",
     "index": "tsx src/indexer/cli.ts",
     "mcp": "tsx src/mcp-server/index.ts",
     "bench": "tsx benchmarks/run.ts",

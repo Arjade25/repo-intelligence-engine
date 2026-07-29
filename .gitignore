@@ -6,3 +6,4 @@ dist/
 *.log
 .DS_Store
 benchmarks/results/
+benchmarks/target-repo/

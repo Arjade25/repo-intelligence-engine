@@ -5,7 +5,7 @@
  *   npm run index -- <path-to-tsconfig.json> [output.db]
  */
 import { openDb } from "../storage/db.js";
-import { indexRepository } from "./index.js";
+import { reindex } from "../engine/index.js";
 
 const tsconfigPath = process.argv[2];
 const dbPath = process.argv[3] ?? "repo-index.db";
@@ -17,9 +17,12 @@ if (!tsconfigPath) {
 
 const db = openDb(dbPath);
 const started = Date.now();
-indexRepository(db, tsconfigPath);
+reindex(db, tsconfigPath);
 
 const { symbols } = db.prepare("SELECT COUNT(*) AS symbols FROM symbols").get() as { symbols: number };
 const { edges } = db.prepare("SELECT COUNT(*) AS edges FROM edges").get() as { edges: number };
-console.error(`indexed ${symbols} symbols, ${edges} edges in ${Date.now() - started}ms -> ${dbPath}`);
+const { refs } = db.prepare("SELECT COUNT(*) AS refs FROM references_").get() as { refs: number };
+console.error(
+  `indexed ${symbols} symbols, ${edges} edges, ${refs} references in ${Date.now() - started}ms -> ${dbPath}`
+);
 db.close();
