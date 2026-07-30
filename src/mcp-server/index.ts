@@ -46,14 +46,21 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
 
   server.tool(
     "find_symbol_references",
-    "Everywhere a symbol is used.",
-    { symbol: z.string().describe("symbol name") },
-    async ({ symbol }) => json(findSymbolReferences(db, symbol))
+    "Everywhere a symbol is used. Each reference includes the declaring file (declared_in) and kind, " +
+      "since one name can match several distinct symbols; pass file_path to scope to one declaration. " +
+      "Check symbol_indexed in the result: false means the name isn't in the index at all (e.g. class " +
+      "methods are never indexed - only top-level declarations), NOT that it's unused.",
+    {
+      symbol: z.string().describe("symbol name"),
+      file_path: z.string().optional().describe("only references to the declaration in this file"),
+    },
+    async ({ symbol, file_path }) => json(findSymbolReferences(db, symbol, file_path))
   );
 
   server.tool(
     "dependency_path",
-    "Is there an import path between two symbols, and what is it (file chain).",
+    "Is there an import path between two symbols, and what is it (file chain). If a symbol name is " +
+      "declared in multiple files, the result's `ambiguity` field lists every candidate and which was used.",
     { symbol_a: z.string(), symbol_b: z.string() },
     async ({ symbol_a, symbol_b }) => json(dependencyPath(db, symbol_a, symbol_b))
   );

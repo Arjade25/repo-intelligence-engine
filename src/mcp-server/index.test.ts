@@ -61,7 +61,8 @@ describe("mcp-server (thin adapter over engine/, plan step 5)", () => {
     const viaMcp = await callToolJson(client, "find_symbol_references", { symbol: "Circle" });
     const direct = findSymbolReferences(db, "Circle");
     expect(viaMcp).toEqual(direct);
-    expect(direct.length).toBeGreaterThan(0);
+    expect(direct.symbol_indexed).toBe(true);
+    expect(direct.references.length).toBeGreaterThan(0);
   });
 
   it("dependency_path: MCP result matches the direct engine call", async () => {

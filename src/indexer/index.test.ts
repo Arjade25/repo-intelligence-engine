@@ -76,4 +76,18 @@ describe("indexRepository (fixtures/sample-repo)", () => {
     expect(edge).toBeDefined();
     expect(edge!.to_symbol_id).toBe(circle.id);
   });
+
+  it("does not write an edge for an external (node_modules) package import", () => {
+    // external.ts imports the real `zod` package (a dependency of this project,
+    // resolved via node_modules walk-up from the fixture) - it must not produce
+    // an edge into node_modules, matching how indexRepository already excludes
+    // external-library files from the symbol-extraction walk.
+    const edges = db.prepare("SELECT * FROM edges WHERE from_file LIKE '%/external.ts'").all() as EdgeRow[];
+    expect(edges).toEqual([]);
+
+    const anyIntoNodeModules = db
+      .prepare("SELECT COUNT(*) AS count FROM edges WHERE to_file LIKE '%node_modules%'")
+      .get() as { count: number };
+    expect(anyIntoNodeModules.count).toBe(0);
+  });
 });

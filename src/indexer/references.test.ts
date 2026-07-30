@@ -20,9 +20,9 @@ describe("indexReferences (fixtures/sample-repo)", () => {
     // Hand-traced (main.ts): line 1 `import { add, PI } from "./index"`,
     // line 7 `return add(PI, c.area());`. shapes.ts's `Math.PI` is a DIFFERENT
     // symbol that a raw text grep for "PI" would wrongly match too.
-    const refs = findSymbolReferences(db, "PI");
-    expect(refs.map((r) => r.line)).toEqual([1, 7]);
-    for (const ref of refs) {
+    const { references } = findSymbolReferences(db, "PI");
+    expect(references.map((r) => r.line)).toEqual([1, 7]);
+    for (const ref of references) {
       expect(ref.used_in_file).toMatch(/\/main\.ts$/);
     }
   });
@@ -32,21 +32,21 @@ describe("indexReferences (fixtures/sample-repo)", () => {
     // main.ts import, main.ts usage, shapes.ts's unrelated Math.PI = 4.
     // Semantic references (real uses of *our* PI, excluding its own declaration) = 2.
     const rawGrepCount = 4;
-    const refs = findSymbolReferences(db, "PI");
-    expect(refs.length).toBeLessThan(rawGrepCount);
-    expect(refs.length).toBe(2);
+    const { references } = findSymbolReferences(db, "PI");
+    expect(references.length).toBeLessThan(rawGrepCount);
+    expect(references.length).toBe(2);
   });
 
   it("finds references to Circle at its two real use sites in main.ts", () => {
     // Hand-traced: line 2 `import { Circle } from "./shapes"`,
     // line 6 `const c = new Circle(2);`.
-    const refs = findSymbolReferences(db, "Circle");
-    expect(refs.map((r) => r.line)).toEqual([2, 6]);
+    const { references } = findSymbolReferences(db, "Circle");
+    expect(references.map((r) => r.line)).toEqual([2, 6]);
   });
 
   it("never returns the declaration site itself as a reference", () => {
-    const refs = findSymbolReferences(db, "Circle");
-    for (const ref of refs) {
+    const { references } = findSymbolReferences(db, "Circle");
+    for (const ref of references) {
       expect(ref.used_in_file).not.toMatch(/\/shapes\.ts$/);
     }
   });

@@ -1,5 +1,6 @@
 import ts from "typescript";
 import type Database from "better-sqlite3";
+import { dirname, resolve } from "node:path";
 import { clearIndex } from "../storage/db.js";
 
 /**
@@ -40,12 +41,13 @@ export function indexRepository(db: Database.Database, tsconfigPath: string): vo
  * over the identical file set. */
 export function loadTsconfig(tsconfigPath: string): { fileNames: string[]; options: ts.CompilerOptions } {
   const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
-  const parsed = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    // basePath = the tsconfig's directory
-    tsconfigPath.replace(/[^/\\]*$/, "") || "."
-  );
+  // basePath must be ABSOLUTE: with a relative basePath (e.g. when a caller
+  // passes "./tsconfig.json", as the MCP server's RIE_TSCONFIG default does),
+  // parseJsonConfigFileContent can emit relative fileNames, which would then be
+  // stored as-is - producing an index whose paths never match one built from an
+  // absolute tsconfig path. Everything stored must be cwd-independent.
+  const basePath = resolve(dirname(tsconfigPath));
+  const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, basePath);
   return { fileNames: parsed.fileNames, options: parsed.options };
 }
 
@@ -138,6 +140,11 @@ function extractEdges(
     if (!ts.isStringLiteral(moduleSpecifier)) return undefined;
     const resolved = ts.resolveModuleName(moduleSpecifier.text, sourceFile.fileName, options, host);
     if (!resolved.resolvedModule) return undefined;
+    // External packages (node_modules) aren't part of the repo's own structural
+    // graph - indexRepository already excludes them from the file-walk via
+    // isSourceFileFromExternalLibrary; treat them the same way here so edges don't
+    // point into node_modules whenever a consuming repo happens to have it installed.
+    if (resolved.resolvedModule.isExternalLibraryImport) return undefined;
     return normalizePath(resolved.resolvedModule.resolvedFileName);
   };
 

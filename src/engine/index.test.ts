@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 import { openDb } from "../storage/db.js";
 import { indexRepository } from "../indexer/index.js";
-import { findModule, findRelatedFiles, dependencyPath } from "./index.js";
+import { findModule, findRelatedFiles, dependencyPath, findSymbolReferences } from "./index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_TSCONFIG = join(__dirname, "../../fixtures/sample-repo/tsconfig.json");
@@ -94,5 +94,74 @@ describe("engine queries (fixtures/sample-repo)", () => {
 
   it("dependency_path returns not-found for an unknown symbol", () => {
     expect(dependencyPath(db, "DoesNotExist", "add")).toEqual({ found: false, chain: [] });
+  });
+});
+
+/**
+ * Ambiguous-name behavior (mirrors a real case: the benchmark target repo declares
+ * both a `Comment` entity class and a `Comment` interface). The fixture repo has
+ * deliberately unique names, so these cases use a hand-built index instead.
+ */
+describe("engine queries with ambiguous symbol names (synthetic db)", () => {
+  const db = openDb(":memory:");
+  db.exec(`
+    INSERT INTO symbols (id, name, kind, file_path, line_start, line_end) VALUES
+      (1, 'Dup',    'class',     '/repo/a.ts', 1, 5),
+      (2, 'Dup',    'interface', '/repo/b.ts', 1, 3),
+      (3, 'Target', 'class',     '/repo/target.ts', 1, 2);
+    INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type) VALUES
+      ('/repo/a.ts', '/repo/target.ts', 3, 'imports');
+    INSERT INTO references_ (symbol_id, used_in_file, line) VALUES
+      (1, '/repo/user1.ts', 10),
+      (2, '/repo/user2.ts', 20);
+  `);
+
+  it("find_symbol_references labels every reference with its declaration", () => {
+    const result = findSymbolReferences(db, "Dup");
+    expect(result.symbol_indexed).toBe(true);
+    expect(result.declarations.map((d) => d.file_path)).toEqual(["/repo/a.ts", "/repo/b.ts"]);
+    expect(result.references).toEqual([
+      { used_in_file: "/repo/user1.ts", line: 10, declared_in: "/repo/a.ts", kind: "class" },
+      { used_in_file: "/repo/user2.ts", line: 20, declared_in: "/repo/b.ts", kind: "interface" },
+    ]);
+  });
+
+  it("find_symbol_references scopes to one declaration via declaredIn", () => {
+    const result = findSymbolReferences(db, "Dup", "/repo/b.ts");
+    expect(result.declarations.map((d) => d.file_path)).toEqual(["/repo/b.ts"]);
+    expect(result.references).toEqual([
+      { used_in_file: "/repo/user2.ts", line: 20, declared_in: "/repo/b.ts", kind: "interface" },
+    ]);
+  });
+
+  it("find_symbol_references distinguishes 'not indexed' from 'indexed but unreferenced'", () => {
+    // Not in the index at all (e.g. a method name): flagged, with an explanatory note.
+    const unknown = findSymbolReferences(db, "someMethodName");
+    expect(unknown.symbol_indexed).toBe(false);
+    expect(unknown.references).toEqual([]);
+    expect(unknown.note).toMatch(/not in the index/);
+    expect(unknown.note).toMatch(/does NOT mean the name is unused/i);
+
+    // Indexed, genuinely zero references: no note, and clearly marked as indexed.
+    const unreferenced = findSymbolReferences(db, "Target");
+    expect(unreferenced.symbol_indexed).toBe(true);
+    expect(unreferenced.references).toEqual([]);
+    expect(unreferenced.note).toBeUndefined();
+  });
+
+  it("dependency_path discloses candidates and its deterministic (alphabetical) choice", () => {
+    const result = dependencyPath(db, "Dup", "Target");
+    // /repo/a.ts sorts before /repo/b.ts, and a.ts -> target.ts is a real edge.
+    expect(result).toEqual({
+      found: true,
+      chain: ["/repo/a.ts", "/repo/target.ts"],
+      ambiguity: { symbol_a: { chosen: "/repo/a.ts", candidates: ["/repo/a.ts", "/repo/b.ts"] } },
+    });
+  });
+
+  it("dependency_path omits the ambiguity field entirely for unique names", () => {
+    const result = dependencyPath(db, "Target", "Target");
+    expect(result).toEqual({ found: true, chain: ["/repo/target.ts"] });
+    expect("ambiguity" in result).toBe(false);
   });
 });

@@ -37,6 +37,10 @@ export interface ReferenceRow {
 export function openDb(path = "repo-index.db"): Database.Database {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
+  // Wait for a competing writer's lock instead of failing (or, worse, letting
+  // interleaved multi-process writes corrupt a shared index file - see the
+  // transaction note on engine/reindex).
+  db.pragma("busy_timeout = 30000");
   const schema = readFileSync(join(__dirname, "schema.sql"), "utf8");
   db.exec(schema);
   return db;
