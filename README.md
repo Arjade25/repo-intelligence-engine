@@ -16,6 +16,7 @@ The engine parses a TypeScript repo with the **TypeScript Compiler API** and sto
 | `find_related_files(file)` | What does this file import, and what imports it? |
 | `find_symbol_references(symbol)` | Everywhere this symbol is used |
 | `dependency_path(a, b)` | Is there an import path between two symbols, and what is it? |
+| `find_circular_dependencies()` | Which files form import cycles? |
 | `reindex(path?)` | Rebuild the index |
 
 The `engine/` functions are callable directly (CLI, tests) — the engine is the product. It also supports Claude Code and any other MCP-compatible client through an integrated MCP server.
@@ -80,6 +81,14 @@ Protocol: fresh session per run (no cross-run contamination), 5 runs per arm per
 **Honest reading:** the engine wins on multi-hop and structural queries (dependency paths halved; impact analysis −1 call) and ties on tasks a good grep already answers in 1–2 calls — a modern agent's baseline is strong, and single-symbol lookups have little headroom. ~30% fewer tool-calls overall.
 
 **† What the benchmark caught:** the first measurement of the impact task showed the assisted arm *losing* (median 5 calls vs. 3, spread up to 11). Transcripts revealed an interface bug, not a data bug: the engine's path-taking tools did exact string matching, so the Windows-style backslash and repo-relative paths agents naturally pass returned empty results — and one tool answered *"symbol not indexed"* when only the path filter had failed. Agents did the rational thing and fell back to grep, doubling the work. After fixing path resolution (normalization + unique-suffix matching + honest "filter dropped" notes), the task flipped to a win and run-to-run variance collapsed from 3–11 calls to 2–3. The raw per-run data for both measurements is in `benchmarks/results/`.
+
+## Circular dependency detection
+
+`find_circular_dependencies()` reports strongly connected components of the import graph (Tarjan's algorithm), each with one concrete example cycle. It reports components rather than enumerating every simple cycle, because a tangled component can contain exponentially many of those — the component is the actionable unit, the example makes it concrete.
+
+On TypeORM it finds 2 groups in ~60 ms: a 2-file cycle (`Brackets.ts` ↔ `WhereExpressionBuilder.ts`) and one 227-file component seeded by `DataSource.ts` ↔ `RelationLoader.ts`. Both were confirmed by reading the imports directly, not taken on the engine's word.
+
+**Known limitation — type-only imports are counted.** v1's `edges` table does not distinguish `import type { X }` from `import { X }`. TypeScript erases type-only imports at compile time, so they create no runtime cycle. Sampling the cycle-forming imports above, 3 of 4 were type-only — meaning the 227-file component substantially overstates what is a *runtime* circular dependency, even though every edge it reports is a real import statement in the source. Distinguishing the two (an `is_type_only` column, set from the AST during indexing) is the obvious next improvement and would make this tool's output directly actionable. Until then, treat the results as "files that reference each other," not "runtime cycles."
 
 ## Development
 

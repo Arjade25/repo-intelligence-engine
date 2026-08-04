@@ -4,7 +4,13 @@ import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 import { openDb } from "../storage/db.js";
 import { indexRepository } from "../indexer/index.js";
-import { findModule, findRelatedFiles, dependencyPath, findSymbolReferences } from "./index.js";
+import {
+  findModule,
+  findRelatedFiles,
+  dependencyPath,
+  findSymbolReferences,
+  findCircularDependencies,
+} from "./index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_TSCONFIG = join(__dirname, "../../fixtures/sample-repo/tsconfig.json");
@@ -244,5 +250,88 @@ describe("path resolution in path-taking queries (synthetic db)", () => {
     expect(result.symbol_indexed).toBe(true);
     expect(result.declarations.map((d) => d.file_path)).toEqual(["/repo/src/widgets/Widget.ts"]);
     expect(result.note).toMatch(/no declaration in/);
+  });
+});
+
+/** Circular dependency detection (plan §9 stretch 1; step 8 done-when: flags a known injected cycle). */
+describe("find_circular_dependencies (synthetic db)", () => {
+  /** Build an index containing only the given from->to file edges. */
+  function dbWithEdges(edges: [string, string][]) {
+    const db = openDb(":memory:");
+    const insert = db.prepare(
+      `INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type) VALUES (?, ?, NULL, 'imports')`
+    );
+    for (const [from, to] of edges) insert.run(from, to);
+    return db;
+  }
+
+  it("reports nothing for an acyclic graph", () => {
+    const db = dbWithEdges([
+      ["/r/a.ts", "/r/b.ts"],
+      ["/r/b.ts", "/r/c.ts"],
+      ["/r/a.ts", "/r/c.ts"],
+    ]);
+    expect(findCircularDependencies(db)).toEqual([]);
+  });
+
+  it("flags a known injected two-file cycle, with a concrete example path", () => {
+    const db = dbWithEdges([
+      ["/r/a.ts", "/r/b.ts"],
+      ["/r/b.ts", "/r/a.ts"], // the injected cycle
+      ["/r/standalone.ts", "/r/a.ts"], // acyclic neighbour, must not be swept in
+    ]);
+    const cycles = findCircularDependencies(db);
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0].files).toEqual(["/r/a.ts", "/r/b.ts"]);
+    // example_cycle starts and ends at the same file, and only visits members.
+    const example = cycles[0].example_cycle;
+    expect(example[0]).toBe(example[example.length - 1]);
+    expect(new Set(example)).toEqual(new Set(["/r/a.ts", "/r/b.ts"]));
+  });
+
+  it("flags a three-file cycle and returns a shortest example through it", () => {
+    const db = dbWithEdges([
+      ["/r/a.ts", "/r/b.ts"],
+      ["/r/b.ts", "/r/c.ts"],
+      ["/r/c.ts", "/r/a.ts"],
+    ]);
+    const [cycle] = findCircularDependencies(db);
+    expect(cycle.files).toEqual(["/r/a.ts", "/r/b.ts", "/r/c.ts"]);
+    expect(cycle.example_cycle).toHaveLength(4); // a -> b -> c -> a
+    expect(cycle.example_cycle[0]).toBe(cycle.example_cycle[3]);
+  });
+
+  it("detects a self-import (file importing itself)", () => {
+    const db = dbWithEdges([["/r/loop.ts", "/r/loop.ts"]]);
+    const cycles = findCircularDependencies(db);
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0].files).toEqual(["/r/loop.ts"]);
+    expect(cycles[0].example_cycle).toEqual(["/r/loop.ts", "/r/loop.ts"]);
+  });
+
+  it("separates independent cycles and orders the largest group first", () => {
+    const db = dbWithEdges([
+      // small cycle: x <-> y
+      ["/r/x.ts", "/r/y.ts"],
+      ["/r/y.ts", "/r/x.ts"],
+      // larger cycle: p -> q -> r -> p
+      ["/r/p.ts", "/r/q.ts"],
+      ["/r/q.ts", "/r/r.ts"],
+      ["/r/r.ts", "/r/p.ts"],
+    ]);
+    const cycles = findCircularDependencies(db);
+    expect(cycles).toHaveLength(2);
+    expect(cycles[0].files).toEqual(["/r/p.ts", "/r/q.ts", "/r/r.ts"]);
+    expect(cycles[1].files).toEqual(["/r/x.ts", "/r/y.ts"]);
+  });
+
+  it("does not treat a diamond (two paths, no back-edge) as a cycle", () => {
+    const db = dbWithEdges([
+      ["/r/top.ts", "/r/left.ts"],
+      ["/r/top.ts", "/r/right.ts"],
+      ["/r/left.ts", "/r/bottom.ts"],
+      ["/r/right.ts", "/r/bottom.ts"],
+    ]);
+    expect(findCircularDependencies(db)).toEqual([]);
   });
 });

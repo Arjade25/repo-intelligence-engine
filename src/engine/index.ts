@@ -274,6 +274,128 @@ export function dependencyPath(db: Database.Database, symbolA: string, symbolB: 
   return withAmbiguity({ found: false, chain: [] });
 }
 
+export interface CircularDependency {
+  /** Every file in the mutually-entangled group, sorted (a strongly connected component). */
+  files: string[];
+  /** One concrete cycle through that group, e.g. [a, b, c, a] — the first and last entries are the same file. */
+  example_cycle: string[];
+}
+
+/**
+ * find_circular_dependencies(): every import cycle in the repo (plan §9 stretch 1).
+ *
+ * Reports strongly connected components rather than enumerating every simple
+ * cycle: a tangled component can contain exponentially many simple cycles, so
+ * listing them all is neither computable nor useful. Each SCC of 2+ files is one
+ * genuine circular-dependency group, plus self-imports (a 1-file SCC with an edge
+ * to itself). Each group carries one concrete example cycle so the result is
+ * actionable rather than just a set membership claim.
+ *
+ * Groups are ordered largest first — the biggest tangle is usually the one worth
+ * breaking. Uses Tarjan's algorithm over the file-level edges. Recursion depth is
+ * bounded by the longest import chain (tens, in real codebases), not file count.
+ */
+export function findCircularDependencies(db: Database.Database): CircularDependency[] {
+  const edges = db.prepare(`SELECT DISTINCT from_file, to_file FROM edges`).all() as {
+    from_file: string;
+    to_file: string;
+  }[];
+
+  const adjacency = new Map<string, string[]>();
+  const selfImports = new Set<string>();
+  for (const { from_file, to_file } of edges) {
+    if (!adjacency.has(from_file)) adjacency.set(from_file, []);
+    adjacency.get(from_file)!.push(to_file);
+    if (!adjacency.has(to_file)) adjacency.set(to_file, []);
+    if (from_file === to_file) selfImports.add(from_file);
+  }
+
+  let counter = 0;
+  const index = new Map<string, number>();
+  const lowlink = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const components: string[][] = [];
+
+  const strongConnect = (v: string): void => {
+    index.set(v, counter);
+    lowlink.set(v, counter);
+    counter++;
+    stack.push(v);
+    onStack.add(v);
+
+    for (const w of adjacency.get(v) ?? []) {
+      if (!index.has(w)) {
+        strongConnect(w);
+        lowlink.set(v, Math.min(lowlink.get(v)!, lowlink.get(w)!));
+      } else if (onStack.has(w)) {
+        lowlink.set(v, Math.min(lowlink.get(v)!, index.get(w)!));
+      }
+    }
+
+    if (lowlink.get(v) === index.get(v)) {
+      const component: string[] = [];
+      let w: string;
+      do {
+        w = stack.pop()!;
+        onStack.delete(w);
+        component.push(w);
+      } while (w !== v);
+      components.push(component);
+    }
+  };
+
+  for (const file of adjacency.keys()) {
+    if (!index.has(file)) strongConnect(file);
+  }
+
+  const cycles: CircularDependency[] = [];
+  for (const component of components) {
+    const isCycle = component.length > 1 || selfImports.has(component[0]);
+    if (!isCycle) continue;
+    const members = new Set(component);
+    cycles.push({
+      files: [...component].sort(),
+      example_cycle: shortestCycleThrough(component[0], members, adjacency),
+    });
+  }
+
+  // Largest tangle first; file list breaks ties so the output is deterministic.
+  return cycles.sort((a, b) => b.files.length - a.files.length || a.files[0].localeCompare(b.files[0]));
+}
+
+/** BFS a shortest path from `start` back to itself, never leaving the component. */
+function shortestCycleThrough(
+  start: string,
+  members: Set<string>,
+  adjacency: Map<string, string[]>
+): string[] {
+  const parent = new Map<string, string>();
+  const queue: string[] = [start];
+  const seen = new Set<string>();
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const next of adjacency.get(current) ?? []) {
+      if (!members.has(next)) continue;
+      if (next === start) {
+        const cycle = [current];
+        let node = current;
+        while (node !== start) {
+          node = parent.get(node)!;
+          cycle.unshift(node);
+        }
+        return [...cycle, start];
+      }
+      if (seen.has(next)) continue;
+      seen.add(next);
+      parent.set(next, current);
+      queue.push(next);
+    }
+  }
+  return [start, start]; // only reachable for a self-import
+}
+
 /** Every file declaring a symbol of this name, alphabetically (deterministic). */
 function filesOfSymbol(db: Database.Database, name: string): string[] {
   const rows = db

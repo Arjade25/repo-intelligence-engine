@@ -20,6 +20,7 @@ import {
   findRelatedFiles,
   findSymbolReferences,
   dependencyPath,
+  findCircularDependencies,
   reindex,
 } from "../engine/index.js";
 
@@ -68,6 +69,15 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
       "declared in multiple files, the result's `ambiguity` field lists every candidate and which was used.",
     { symbol_a: z.string(), symbol_b: z.string() },
     async ({ symbol_a, symbol_b }) => json(dependencyPath(db, symbol_a, symbol_b))
+  );
+
+  server.tool(
+    "find_circular_dependencies",
+    "Every import cycle in the repo. Returns one entry per mutually-entangled group of files " +
+      "(a strongly connected component), each with a concrete example cycle. Groups are ordered " +
+      "largest first. An empty array means the import graph is acyclic.",
+    {},
+    async () => json(findCircularDependencies(db))
   );
 
   server.tool(

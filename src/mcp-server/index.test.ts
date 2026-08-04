@@ -4,7 +4,14 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { openDb } from "../storage/db.js";
-import { reindex, findModule, findRelatedFiles, findSymbolReferences, dependencyPath } from "../engine/index.js";
+import {
+  reindex,
+  findModule,
+  findRelatedFiles,
+  findSymbolReferences,
+  dependencyPath,
+  findCircularDependencies,
+} from "../engine/index.js";
 import { createServer } from "./index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -34,11 +41,18 @@ describe("mcp-server (thin adapter over engine/, plan step 5)", () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
   });
 
-  it("lists all five tools", async () => {
+  it("lists every tool the engine exposes", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(
-      ["dependency_path", "find_module", "find_related_files", "find_symbol_references", "reindex"].sort()
+      [
+        "dependency_path",
+        "find_circular_dependencies",
+        "find_module",
+        "find_related_files",
+        "find_symbol_references",
+        "reindex",
+      ].sort()
     );
   });
 
@@ -79,5 +93,43 @@ describe("mcp-server (thin adapter over engine/, plan step 5)", () => {
     const { c: directCount } = db.prepare("SELECT COUNT(*) AS c FROM symbols").get() as { c: number };
     expect(viaMcp.symbols).toBe(directCount);
     expect(directCount).toBe(6); // the fixture's hand-counted symbol total (step 1)
+  });
+
+  it("find_circular_dependencies: reports none for the acyclic fixture repo", async () => {
+    const viaMcp = await callToolJson(client, "find_circular_dependencies", {});
+    expect(viaMcp).toEqual(findCircularDependencies(db));
+    expect(viaMcp).toEqual([]);
+  });
+});
+
+/**
+ * The fixture repo is acyclic, so the parity check above compares two empty
+ * arrays. This block runs the same tool over an index that genuinely contains a
+ * cycle, proving the adapter passes real data through rather than just agreeing
+ * about nothing.
+ */
+describe("mcp-server: find_circular_dependencies over a cyclic index", () => {
+  const db = openDb(":memory:");
+  db.exec(`
+    INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type) VALUES
+      ('/r/a.ts', '/r/b.ts', NULL, 'imports'),
+      ('/r/b.ts', '/r/a.ts', NULL, 'imports');
+  `);
+
+  let client: Client;
+
+  beforeAll(async () => {
+    const server = createServer(db, FIXTURE_TSCONFIG);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  });
+
+  it("MCP result matches the direct engine call, and is non-empty", async () => {
+    const viaMcp = (await callToolJson(client, "find_circular_dependencies", {})) as unknown[];
+    const direct = findCircularDependencies(db);
+    expect(viaMcp).toEqual(direct);
+    expect(direct).toHaveLength(1);
+    expect(direct[0].files).toEqual(["/r/a.ts", "/r/b.ts"]);
   });
 });
