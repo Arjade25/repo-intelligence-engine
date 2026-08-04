@@ -1,10 +1,10 @@
 {
   "repo": {
-    "name": "nestjs-realworld-example-app",
-    "url": "https://github.com/lujakob/nestjs-realworld-example-app.git",
-    "commit": "c1c2cc4e448b279ff083272df1ac50d20c3304fa",
-    "tsconfig": "tsconfig.json",
-    "note": "NestJS + TypeORM implementation of the RealWorld spec (~35 TS files: articles, comments, profiles, follows, tags, JWT auth) - real service/repository layering and barrel dto/index.ts files, chosen per plan §12 for import density (not JS, not a huge monorepo)."
+    "name": "typeorm",
+    "url": "https://github.com/typeorm/typeorm.git",
+    "commit": "04ff4daedcf60fa4ffd0d5d33bbafaac1a9bbc96",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "TypeORM ORM library, 496 src/*.ts files, 1108 indexed symbols, 2750 file-level edges - replaces the earlier 35-file nestjs-realworld target, which was too small for a compelling grep baseline (plan §12: 'benchmark repo choice matters'). tsconfig.rie.json is a self-contained config added for indexing (upstream tsconfig extends @tsconfig/node20, which needs node_modules; ours doesn't). Oracles below were verified with independent grep ground-truth, not engine output alone."
   },
   "protocol": {
     "runs_per_arm": 5,
@@ -13,74 +13,70 @@
   },
   "tasks": [
     {
-      "id": "login-flow",
-      "prompt": "How does user login work in this codebase? Name the specific file and function that handles a login request.",
+      "id": "datasource-define",
+      "prompt": "Where is the DataSource class defined in this codebase? Give the exact file and line.",
       "oracle": {
-        "description": "UserController.login() (src/user/user.controller.ts) handles POST users/login; it calls UserService.findOne() to verify credentials and UserService.generateJWT() to issue the token (both in src/user/user.service.ts).",
-        "files": ["src/user/user.controller.ts:43", "src/user/user.service.ts:25", "src/user/user.service.ts:103"]
+        "description": "export class DataSource at src/data-source/DataSource.ts line 56. Verified by grep 'export class DataSource'.",
+        "files": ["src/data-source/DataSource.ts:56"]
       }
     },
     {
-      "id": "userservice-uses",
-      "prompt": "Where is UserService used across the codebase?",
+      "id": "driver-impact",
+      "prompt": "What files would be affected if I changed the Driver interface in src/driver/Driver.ts? List the files that import it.",
       "oracle": {
-        "description": "Every file that imports/injects UserService, besides its own declaration.",
-        "files": ["src/user/auth.middleware.ts", "src/user/user.controller.ts", "src/user/user.module.ts"]
-      }
-    },
-    {
-      "id": "userentity-impact",
-      "prompt": "What files would be affected if I changed the UserEntity class?",
-      "oracle": {
-        "description": "Every file that imports UserEntity, besides its own declaration file.",
+        "description": "Exactly 23 files import src/driver/Driver.ts. Verified by grep for `from \"...(/|..)/Driver\"` across src: 12 concrete driver implementations, DataSource.ts, DriverFactory.ts, DriverUtils.ts, QueryRunner-adjacent schema-builder files, index.ts, and 3 others. Engine's imported_by list matched grep's 23/23 file-for-file.",
         "files": [
-          "src/article/article.entity.ts",
-          "src/article/article.module.ts",
-          "src/article/article.service.ts",
-          "src/profile/profile.module.ts",
-          "src/profile/profile.service.ts",
-          "src/user/user.module.ts",
-          "src/user/user.service.ts"
+          "src/data-source/DataSource.ts",
+          "src/driver/DriverFactory.ts",
+          "src/driver/DriverUtils.ts",
+          "src/driver/postgres/PostgresDriver.ts",
+          "src/driver/mysql/MysqlDriver.ts",
+          "src/driver/sqlserver/SqlServerDriver.ts",
+          "src/index.ts"
         ]
       }
     },
     {
-      "id": "createarticledto-barrel",
-      "prompt": "Where is CreateArticleDto actually defined, and where is it used? Note it's imported from a barrel file.",
+      "id": "namingstrategy-uses",
+      "prompt": "Where is NamingStrategyInterface used across the codebase?",
       "oracle": {
-        "description": "Really declared in src/article/dto/create-article.dto.ts, re-exported through the barrel src/article/dto/index.ts, and used in article.controller.ts (create/update handlers) and article.service.ts (create()).",
+        "description": "Declared in src/naming-strategy/NamingStrategyInterface.ts:8; referenced from 9 other files (grep finds 10 total including the declaration file itself - engine's 9 + declaration = grep's 10, satisfying the refs<=grep invariant).",
         "files": [
-          "src/article/dto/create-article.dto.ts",
-          "src/article/dto/index.ts",
-          "src/article/article.controller.ts",
-          "src/article/article.service.ts"
+          "src/naming-strategy/NamingStrategyInterface.ts",
+          "src/data-source/DataSource.ts",
+          "src/data-source/BaseDataSourceOptions.ts",
+          "src/naming-strategy/DefaultNamingStrategy.ts",
+          "src/metadata/ForeignKeyMetadata.ts",
+          "src/metadata/IndexMetadata.ts",
+          "src/metadata/UniqueMetadata.ts",
+          "src/metadata/CheckMetadata.ts",
+          "src/metadata/ExclusionMetadata.ts",
+          "src/index.ts"
         ]
       }
     },
     {
-      "id": "article-to-user-path",
-      "prompt": "Is there an import dependency path from ArticleService to UserEntity? If so, what is it?",
+      "id": "postgres-datasource-path",
+      "prompt": "Is there an import dependency path from PostgresDriver to DataSource? If so, what is it?",
       "oracle": {
-        "description": "Yes, direct: src/article/article.service.ts imports UserEntity straight from src/user/user.entity.ts (one hop, no intermediate file).",
-        "files": ["src/article/article.service.ts", "src/user/user.entity.ts"]
+        "description": "Yes, direct: src/driver/postgres/PostgresDriver.ts line 2 has `import type { DataSource } from \"../../data-source/DataSource\"` - one hop. Verified by grep.",
+        "files": ["src/driver/postgres/PostgresDriver.ts", "src/data-source/DataSource.ts"]
       }
     },
     {
-      "id": "article-module-related",
-      "prompt": "What does src/article/article.module.ts import, and what imports it?",
+      "id": "sqb-datasource-path",
+      "prompt": "Is there an import dependency path from SelectQueryBuilder to the DataSource class? What files does it go through?",
       "oracle": {
-        "description": "Imports: article.controller.ts, article.entity.ts, comment.entity.ts, ../user/user.entity.ts, ../profile/follows.entity.ts, article.service.ts, ../user/auth.middleware.ts, ../user/user.module.ts (plus @nestjs/* packages). Imported by: src/app.module.ts.",
-        "files": [
-          "src/article/article.controller.ts",
-          "src/article/article.entity.ts",
-          "src/article/comment.entity.ts",
-          "src/user/user.entity.ts",
-          "src/profile/follows.entity.ts",
-          "src/article/article.service.ts",
-          "src/user/auth.middleware.ts",
-          "src/user/user.module.ts",
-          "src/app.module.ts"
-        ]
+        "description": "Yes. SelectQueryBuilder.ts imports MysqlDriver (line 6, type import), and MysqlDriver.ts imports DataSource (line 2). SQB also references dataSource via other intermediates; any valid chain ending at src/data-source/DataSource.ts counts. Verified hops by grep.",
+        "files": ["src/query-builder/SelectQueryBuilder.ts", "src/data-source/DataSource.ts"]
+      }
+    },
+    {
+      "id": "entitymanager-define",
+      "prompt": "Which file defines the EntityManager class, and what does that file import from the query-builder directory?",
+      "oracle": {
+        "description": "src/entity-manager/EntityManager.ts line 40 (verified by grep 'export class EntityManager'). Its query-builder imports include QueryBuilder/SelectQueryBuilder machinery - any correct subset naming the file + at least one real query-builder import counts.",
+        "files": ["src/entity-manager/EntityManager.ts", "src/query-builder/SelectQueryBuilder.ts"]
       }
     }
   ]

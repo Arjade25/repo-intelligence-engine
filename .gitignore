@@ -7,5 +7,7 @@ dist/
 *.sqlite
 *.log
 .DS_Store
-benchmarks/results/
+# benchmarks/results/ is deliberately NOT ignored: the README cites it as the raw
+# evidence behind the before/after table, so it has to ship with the repo.
+# The cloned target repo does not — it is reproducible from tasks.json (url+commit).
 benchmarks/target-repo/

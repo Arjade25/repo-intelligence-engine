@@ -165,3 +165,84 @@ describe("engine queries with ambiguous symbol names (synthetic db)", () => {
     expect("ambiguity" in result).toBe(false);
   });
 });
+
+/**
+ * Path-format tolerance (the driver-impact benchmark regression): agents on
+ * Windows pass backslash and repo-relative paths, but the index stores absolute
+ * forward-slash paths. Exact string equality returned empty results for every
+ * such call, which transcripts showed sends agents straight back to grep.
+ */
+describe("path resolution in path-taking queries (synthetic db)", () => {
+  const db = openDb(":memory:");
+  db.exec(`
+    INSERT INTO symbols (id, name, kind, file_path, line_start, line_end) VALUES
+      (1, 'Widget', 'class', '/repo/src/widgets/Widget.ts', 1, 5),
+      (2, 'Panel',  'class', '/repo/src/panels/Panel.ts', 1, 5);
+    INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type) VALUES
+      ('/repo/src/panels/Panel.ts', '/repo/src/widgets/Widget.ts', 1, 'imports'),
+      ('/repo/src/a/util.ts', '/repo/src/widgets/Widget.ts', NULL, 'imports'),
+      ('/repo/src/b/util.ts', '/repo/src/widgets/Widget.ts', NULL, 'imports');
+    INSERT INTO references_ (symbol_id, used_in_file, line) VALUES
+      (1, '/repo/src/panels/Panel.ts', 3);
+  `);
+
+  it("find_related_files accepts backslash absolute paths", () => {
+    const related = findRelatedFiles(db, "\\repo\\src\\widgets\\Widget.ts");
+    expect(related.file_indexed).toBe(true);
+    expect(related.resolved_path).toBe("/repo/src/widgets/Widget.ts");
+    expect(related.imported_by).toHaveLength(3);
+  });
+
+  it("find_related_files accepts repo-relative paths via unique suffix match", () => {
+    const related = findRelatedFiles(db, "widgets/Widget.ts");
+    expect(related.file_indexed).toBe(true);
+    expect(related.resolved_path).toBe("/repo/src/widgets/Widget.ts");
+    expect(related.imported_by).toHaveLength(3);
+  });
+
+  it("find_related_files matches case-insensitively (Windows filesystems)", () => {
+    const related = findRelatedFiles(db, "/REPO/src/Widgets/widget.TS");
+    expect(related.file_indexed).toBe(true);
+    expect(related.resolved_path).toBe("/repo/src/widgets/Widget.ts");
+  });
+
+  it("find_related_files flags an ambiguous suffix instead of guessing", () => {
+    // 'util.ts' matches both a/util.ts and b/util.ts.
+    const related = findRelatedFiles(db, "util.ts");
+    expect(related.file_indexed).toBe(false);
+    expect(related.resolved_path).toBeNull();
+    expect(related.note).toMatch(/matches 2 indexed files/);
+    expect(related.note).toContain("/repo/src/a/util.ts");
+  });
+
+  it("find_related_files flags an unknown path instead of returning bare empties", () => {
+    const related = findRelatedFiles(db, "no/such/file.ts");
+    expect(related.file_indexed).toBe(false);
+    expect(related.note).toMatch(/not in the index/);
+  });
+
+  it("find_symbol_references resolves backslash/relative declaredIn filters", () => {
+    for (const path of ["\\repo\\src\\widgets\\Widget.ts", "widgets/Widget.ts"]) {
+      const result = findSymbolReferences(db, "Widget", path);
+      expect(result.symbol_indexed).toBe(true);
+      expect(result.declarations.map((d) => d.file_path)).toEqual(["/repo/src/widgets/Widget.ts"]);
+      expect(result.references).toHaveLength(1);
+      expect(result.note).toBeUndefined();
+    }
+  });
+
+  it("find_symbol_references drops an unresolvable filter with a note, never claiming 'not indexed'", () => {
+    const result = findSymbolReferences(db, "Widget", "no/such/file.ts");
+    expect(result.symbol_indexed).toBe(true); // the NAME is indexed - the old code said false here
+    expect(result.declarations).toHaveLength(1);
+    expect(result.references).toHaveLength(1);
+    expect(result.note).toMatch(/ignoring the filter/);
+  });
+
+  it("find_symbol_references drops a filter pointing at a file that lacks the symbol, with a note", () => {
+    const result = findSymbolReferences(db, "Widget", "/repo/src/panels/Panel.ts");
+    expect(result.symbol_indexed).toBe(true);
+    expect(result.declarations.map((d) => d.file_path)).toEqual(["/repo/src/widgets/Widget.ts"]);
+    expect(result.note).toMatch(/no declaration in/);
+  });
+});

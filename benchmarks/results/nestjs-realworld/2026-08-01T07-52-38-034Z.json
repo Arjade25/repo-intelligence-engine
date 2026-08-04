@@ -1,0 +1,592 @@
+{
+  "repo": {
+    "name": "nestjs-realworld-example-app",
+    "url": "https://github.com/lujakob/nestjs-realworld-example-app.git",
+    "commit": "c1c2cc4e448b279ff083272df1ac50d20c3304fa",
+    "tsconfig": "tsconfig.json",
+    "note": "NestJS + TypeORM implementation of the RealWorld spec (~35 TS files: articles, comments, profiles, follows, tags, JWT auth) - real service/repository layering and barrel dto/index.ts files, chosen per plan §12 for import density (not JS, not a huge monorepo)."
+  },
+  "arms": [
+    "baseline",
+    "assisted"
+  ],
+  "runsPerArm": 5,
+  "summary": {
+    "login-flow": {
+      "baseline": {
+        "median_file_reads": 2,
+        "median_tool_calls": 5,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "890f1aeb-090e-4a32-be06-f0c71460e863",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 5
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e4f696fd-a0e3-4710-baf3-d97e07215cd5",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "a405e166-50d8-4f8d-bff5-dbeb21df9c2f",
+            "metrics": {
+              "file_reads": 3,
+              "tool_calls": 6
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "28686382-4bba-4a2c-9dee-ba95dbbd5efc",
+            "metrics": {
+              "file_reads": 4,
+              "tool_calls": 8
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "23db76ce-cb5d-4096-84ba-a50e5c355211",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 2,
+        "median_tool_calls": 5,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "cac9feb8-e082-40b0-89f7-8e65bc079d42",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 5
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "7c9679d1-50ae-47eb-830a-d7c942fab5ab",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 5
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "366af0ca-0d6c-4a14-980b-e6b394d492ff",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "8b57898e-f9d5-4f6d-ac2c-371912851a5b",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "39b11838-496b-4ea7-8298-e5c2ef2ee0e7",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 7
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "userservice-uses": {
+      "baseline": {
+        "median_file_reads": 0,
+        "median_tool_calls": 2,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "4e037cf6-d230-46e8-9780-592688125ae4",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "30f71e97-aa3d-48c6-a07e-33ce1bbc34be",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "f8ab1ac9-9f9f-456a-bee3-366ff45b2877",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "b3a150a9-8cc1-41de-8b0a-acd86fa0c640",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e439b720-13cb-490d-8632-8fe2fe1ea002",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 1,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "4c319a97-230d-44b6-8d69-30b86813825f",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "792fd697-e209-4b55-b070-16e99a4ab10b",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "3769b17b-64bd-4bad-96f2-a568de2b706f",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2a294ed7-ba05-45c8-a80a-bdb0162b2723",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "1fbf8bc6-1d34-4eb0-a84c-5bd49442d010",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "userentity-impact": {
+      "baseline": {
+        "median_file_reads": 1,
+        "median_tool_calls": 3,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "2e1b8ddd-c6fa-4409-9f62-374789bd3939",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "7885f0b7-531e-4582-ac18-932a2165cc93",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "8df4fab2-6bd0-485e-8b75-aa575777a862",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "6ecf1f7b-9654-4d27-8384-ff7209726e70",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e8d2c741-2204-4668-9f53-ddfd25a537f0",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 2,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "58325d83-0f98-4615-b559-180ac0ca6c8d",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2a6face5-c831-4adc-be0c-194487117b12",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "ff88b129-1cac-45e8-9fe2-87cc3a2d2d8a",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "f597d3f1-274a-46a4-9eb0-6420824b79e4",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "b7132607-3132-4b41-895c-5e09b6b96465",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "createarticledto-barrel": {
+      "baseline": {
+        "median_file_reads": 2,
+        "median_tool_calls": 5,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "64c77bc7-bd72-4dbd-a46e-bc2f90b3e45e",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 7
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "482a1043-0894-476f-bffc-a63aaee97d6a",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 5
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e34e9362-3a6f-4b8b-89a3-7c81b0b2b7fd",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2ef3b29c-af74-4704-99b8-7140d7b44e3b",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "b473e9cc-7c85-4873-909c-4ccf01cbe539",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 5
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 2,
+        "median_tool_calls": 4,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "f2adf7af-0233-45f2-8196-b4e89571e193",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e32f02db-b1ed-4d40-be59-5796f1e9ef21",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "cfcffdf6-e662-4017-a6c6-a5c806ad1533",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "11c99e96-a029-42c6-b13e-ac8b5b734eab",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "abf5eb3b-f207-4d70-ace1-113d0f6a103a",
+            "metrics": {
+              "file_reads": 2,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "article-to-user-path": {
+      "baseline": {
+        "median_file_reads": 1,
+        "median_tool_calls": 2,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "fe6542f7-b825-4fb6-a3a0-9a5fe47a8cf5",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2b410aa6-9780-4b34-864e-fa8f7497bbc9",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "ed851f06-c948-48c9-84c8-82340bdc4bcf",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "379a1921-f473-413d-b868-d93e518298cb",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "43d31da7-f6fa-4458-a9cd-c5031d0fb076",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 1,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "4c43d060-93de-43ab-9229-6dacd0342612",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "46343407-d6ac-4eef-82e6-03fc044f16d5",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "8b0a2ddb-1a96-4f65-b07c-d8c0f542c23c",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "641c59a9-94e0-4114-a127-2a9c9d00b044",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2bb7727b-d03a-443c-a654-fc1650de97aa",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "article-module-related": {
+      "baseline": {
+        "median_file_reads": 1,
+        "median_tool_calls": 2,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "5628ae17-1265-4714-a4c1-590dcc4761be",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "c727c159-9749-47e7-b18c-c4d65a72609f",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "b8385ff2-1030-457c-a0af-afc27a5f7c05",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "62689e4b-fae0-4976-a559-a8ebc6e677b7",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "6309746f-2b2f-455a-895b-fa82f75fd726",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 1,
+        "median_tool_calls": 3,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "5018d7ae-08c9-42ea-abc9-196aa10712b1",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "835a9ca1-1e80-4ad1-ae18-9070757b346b",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "a8c6e338-314a-4607-adcc-1625b61548dd",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "d99c63ab-4d74-4ae0-afca-72929a672110",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "54126be3-c707-4b15-877b-3db8f9acdfa8",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "repo": {
+    "name": "typeorm",
+    "url": "https://github.com/typeorm/typeorm.git",
+    "commit": "04ff4daedcf60fa4ffd0d5d33bbafaac1a9bbc96",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "TypeORM ORM library, 496 src/*.ts files, 1108 indexed symbols, 2750 file-level edges - replaces the earlier 35-file nestjs-realworld target, which was too small for a compelling grep baseline (plan §12: 'benchmark repo choice matters'). tsconfig.rie.json is a self-contained config added for indexing (upstream tsconfig extends @tsconfig/node20, which needs node_modules; ours doesn't). Oracles below were verified with independent grep ground-truth, not engine output alone."
+  },
+  "arms": [
+    "baseline",
+    "assisted"
+  ],
+  "runsPerArm": 5,
+  "summary": {
+    "driver-impact": {
+      "baseline": {
+        "median_file_reads": 0,
+        "median_tool_calls": 3,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "2fdf9ea9-9287-493f-828c-f6c05969b1f8",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "126ff655-650f-40db-be04-1ec4dafe847f",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "1ec38ec0-e1a9-4eb8-b061-17167510156b",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "6c1ee965-2df1-4f26-9420-b5aa8afc42e6",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "5f4860cc-5ddd-4b31-88b3-76ec5ebb0014",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 2,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "ee7d86ac-e99f-4972-bb15-79494a049396",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "c8d94dcc-5e43-49e9-9e03-33d7a48c2d8e",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "17448ba2-d4f5-4397-9736-6da0fc9bf62c",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "93ec94a4-2f9b-478b-b295-6fc2c1dfc53b",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "7c5d9551-c551-4f8f-a9b0-e5f00295132f",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    }
+  }
+}

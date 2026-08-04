@@ -1,0 +1,48 @@
+{
+  "repo": {
+    "name": "nestjs-realworld-example-app",
+    "url": "https://github.com/lujakob/nestjs-realworld-example-app.git",
+    "commit": "c1c2cc4e448b279ff083272df1ac50d20c3304fa",
+    "tsconfig": "tsconfig.json",
+    "note": "NestJS + TypeORM implementation of the RealWorld spec (~35 TS files: articles, comments, profiles, follows, tags, JWT auth) - real service/repository layering and barrel dto/index.ts files, chosen per plan §12 for import density (not JS, not a huge monorepo)."
+  },
+  "arms": [
+    "baseline",
+    "assisted"
+  ],
+  "runsPerArm": 1,
+  "summary": {
+    "login-flow": {
+      "baseline": {
+        "median_file_reads": 0,
+        "median_tool_calls": 0,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "a0c15f65-875c-421a-9b48-a240961ce78f",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 0
+            },
+            "located_oracle": false
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 0,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "12b0c672-a6e8-4a16-9157-b7048d333abc",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 0
+            },
+            "located_oracle": false
+          }
+        ]
+      }
+    }
+  }
+}

@@ -18,8 +18,16 @@ export interface FindModuleResult {
 }
 
 export interface RelatedFiles {
+  /**
+   * false = the given path resolved to no indexed file. Without this flag an
+   * unresolvable path silently returned two empty arrays — indistinguishable from
+   * "indexed, but genuinely unconnected", which sent benchmark agents back to grep.
+   */
+  file_indexed: boolean;
+  resolved_path: string | null; // the canonical stored path actually queried
   imports: string[];      // files this file imports
   imported_by: string[];  // files that import this file
+  note?: string;          // set when the path failed to resolve or was ambiguous
 }
 
 export interface SymbolReference {
@@ -69,15 +77,65 @@ export function findModule(db: Database.Database, name: string): FindModuleResul
 
 /** find_related_files(file_path): both directions, via the file-level edges table. */
 export function findRelatedFiles(db: Database.Database, filePath: string): RelatedFiles {
+  const { resolved, candidates } = resolveIndexedPath(db, filePath);
+  if (!resolved) {
+    return {
+      file_indexed: false,
+      resolved_path: null,
+      imports: [],
+      imported_by: [],
+      note:
+        candidates.length > 1
+          ? `"${filePath}" matches ${candidates.length} indexed files - give a longer path. Candidates: ${candidates.join(", ")}`
+          : `"${filePath}" is not in the index (not a .ts/.tsx file under the indexed tsconfig, or the index is stale - try reindex).`,
+    };
+  }
+
   const imports = db
     .prepare(`SELECT DISTINCT to_file FROM edges WHERE from_file = ? ORDER BY to_file`)
-    .all(filePath)
+    .all(resolved)
     .map((r) => (r as { to_file: string }).to_file);
   const importedBy = db
     .prepare(`SELECT DISTINCT from_file FROM edges WHERE to_file = ? ORDER BY from_file`)
-    .all(filePath)
+    .all(resolved)
     .map((r) => (r as { from_file: string }).from_file);
-  return { imports, imported_by: importedBy };
+  return { file_indexed: true, resolved_path: resolved, imports, imported_by: importedBy };
+}
+
+/**
+ * Resolve a caller-supplied path to the exact string the index stores (absolute,
+ * forward-slash — see indexer). Callers on Windows naturally pass backslash paths
+ * (that's what Read/Grep hand an agent) and often repo-relative ones; exact string
+ * equality made all of those silently return empty results, which benchmark
+ * transcripts showed sends agents straight back to grep (the driver-impact
+ * regression). Matching is case-insensitive because Windows filesystems are.
+ * Resolution order: exact match, then unique suffix match on a '/' boundary.
+ * Returns resolved:null with the candidate list when nothing (or too much) matches.
+ */
+function resolveIndexedPath(
+  db: Database.Database,
+  givenPath: string
+): { resolved: string | null; candidates: string[] } {
+  const normalized = givenPath.replace(/\\/g, "/");
+  const lower = normalized.toLowerCase();
+
+  const allFiles = (
+    db
+      .prepare(
+        `SELECT file_path AS f FROM symbols
+         UNION SELECT from_file FROM edges
+         UNION SELECT to_file FROM edges`
+      )
+      .all() as { f: string }[]
+  ).map((r) => r.f);
+
+  const exact = allFiles.filter((f) => f.toLowerCase() === lower);
+  if (exact.length === 1) return { resolved: exact[0], candidates: exact };
+
+  const bySuffix = allFiles.filter((f) => f.toLowerCase().endsWith(`/${lower}`)).sort();
+  if (bySuffix.length === 1) return { resolved: bySuffix[0], candidates: bySuffix };
+
+  return { resolved: null, candidates: bySuffix };
 }
 
 /**
@@ -97,27 +155,62 @@ export function findSymbolReferences(
   symbol: string,
   declaredIn?: string
 ): SymbolReferencesResult {
-  const declSql = `SELECT name, kind, file_path, line_start
-         FROM symbols WHERE name = ?${declaredIn ? " AND file_path = ?" : ""}
+  const queryBoth = (path?: string) => {
+    const declSql = `SELECT name, kind, file_path, line_start
+         FROM symbols WHERE name = ?${path ? " AND file_path = ?" : ""}
         ORDER BY file_path`;
-  const declStmt = db.prepare(declSql);
-  const declarations = (
-    declaredIn ? declStmt.all(symbol, declaredIn) : declStmt.all(symbol)
-  ) as FindModuleResult[];
-
-  const refSql = `SELECT r.used_in_file, r.line, s.file_path AS declared_in, s.kind
+    const refSql = `SELECT r.used_in_file, r.line, s.file_path AS declared_in, s.kind
          FROM references_ r
          JOIN symbols s ON s.id = r.symbol_id
-        WHERE s.name = ?${declaredIn ? " AND s.file_path = ?" : ""}
+        WHERE s.name = ?${path ? " AND s.file_path = ?" : ""}
         ORDER BY r.used_in_file, r.line`;
-  const refStmt = db.prepare(refSql);
-  const references = (declaredIn ? refStmt.all(symbol, declaredIn) : refStmt.all(symbol)) as SymbolReference[];
+    return {
+      declarations: (path
+        ? db.prepare(declSql).all(symbol, path)
+        : db.prepare(declSql).all(symbol)) as FindModuleResult[],
+      references: (path
+        ? db.prepare(refSql).all(symbol, path)
+        : db.prepare(refSql).all(symbol)) as SymbolReference[],
+    };
+  };
+
+  // Resolve the path filter to the index's canonical form before comparing: a
+  // backslash or repo-relative declaredIn used to fail string equality and made
+  // this function claim the symbol wasn't indexed at all (see resolveIndexedPath).
+  // An unresolvable filter is dropped (with a note), never silently applied.
+  let note: string | undefined;
+  let filterPath: string | undefined;
+  if (declaredIn !== undefined) {
+    const { resolved, candidates } = resolveIndexedPath(db, declaredIn);
+    if (resolved) {
+      filterPath = resolved;
+    } else {
+      note =
+        candidates.length > 1
+          ? `file_path "${declaredIn}" matches ${candidates.length} indexed files (${candidates.join(", ")}) - ignoring the filter and showing every declaration of "${symbol}".`
+          : `file_path "${declaredIn}" is not in the index - ignoring the filter and showing every declaration of "${symbol}".`;
+    }
+  }
+
+  let { declarations, references } = queryBoth(filterPath);
+
+  // A path that resolves but declares no symbol of this name must not read as
+  // "name not indexed" either: drop the filter and say exactly what happened.
+  if (declarations.length === 0 && filterPath !== undefined) {
+    const unfiltered = queryBoth(undefined);
+    if (unfiltered.declarations.length > 0) {
+      declarations = unfiltered.declarations;
+      references = unfiltered.references;
+      note = `"${symbol}" has no declaration in ${filterPath} - ignoring the filter. It is declared in: ${declarations.map((d) => d.file_path).join(", ")}.`;
+    }
+  }
 
   const result: SymbolReferencesResult = {
     symbol_indexed: declarations.length > 0,
     declarations,
     references,
   };
+  if (note !== undefined) result.note = note;
   if (!result.symbol_indexed) {
     result.note =
       `"${symbol}" is not in the index. Only top-level declarations (class/function/` +

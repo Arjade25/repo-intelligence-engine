@@ -39,8 +39,10 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
 
   server.tool(
     "find_related_files",
-    "What this file imports, and what imports it.",
-    { file_path: z.string().describe("absolute file path") },
+    "What this file imports, and what imports it. Accepts absolute or repo-relative paths, " +
+      "forward or back slashes, case-insensitive. Check file_indexed in the result: false means " +
+      "the path matched no indexed file (the note says why), NOT that the file has no imports.",
+    { file_path: z.string().describe("file path (absolute or repo-relative, any slash style)") },
     async ({ file_path }) => json(findRelatedFiles(db, file_path))
   );
 
@@ -52,7 +54,10 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
       "methods are never indexed - only top-level declarations), NOT that it's unused.",
     {
       symbol: z.string().describe("symbol name"),
-      file_path: z.string().optional().describe("only references to the declaration in this file"),
+      file_path: z
+        .string()
+        .optional()
+        .describe("only references to the declaration in this file (absolute or repo-relative, any slash style)"),
     },
     async ({ symbol, file_path }) => json(findSymbolReferences(db, symbol, file_path))
   );

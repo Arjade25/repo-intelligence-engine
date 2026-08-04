@@ -1,0 +1,592 @@
+{
+  "repo": {
+    "name": "typeorm",
+    "url": "https://github.com/typeorm/typeorm.git",
+    "commit": "04ff4daedcf60fa4ffd0d5d33bbafaac1a9bbc96",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "TypeORM ORM library, 496 src/*.ts files, 1108 indexed symbols, 2750 file-level edges - replaces the earlier 35-file nestjs-realworld target, which was too small for a compelling grep baseline (plan §12: 'benchmark repo choice matters'). tsconfig.rie.json is a self-contained config added for indexing (upstream tsconfig extends @tsconfig/node20, which needs node_modules; ours doesn't). Oracles below were verified with independent grep ground-truth, not engine output alone."
+  },
+  "arms": [
+    "baseline",
+    "assisted"
+  ],
+  "runsPerArm": 5,
+  "summary": {
+    "datasource-define": {
+      "baseline": {
+        "median_file_reads": 0,
+        "median_tool_calls": 1,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "63c5213e-603c-4bfb-87c7-d418ec37f646",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "88fec918-5b57-4797-8fed-9929c9d85612",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "7f5eae4d-231b-4c5b-a2e5-caec51e342a9",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "78779477-2a99-4b00-bd16-45a5c7a6fecd",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2b26c0bf-ef56-41ca-99a4-3eb1335ee1aa",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 1,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "69649041-78a5-4a2b-9333-cafe2f90a41d",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e018ab70-41ad-4f8b-8cf0-9fae9c21fc97",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "81fa5334-92c8-451a-9c95-f55feb457ed8",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "54b3e4bb-aecf-456c-909d-0f80a08411a0",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "1fb2d752-a033-472a-99e6-e42626fc7bc8",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "driver-impact": {
+      "baseline": {
+        "median_file_reads": 0,
+        "median_tool_calls": 2,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "cbc07431-9d20-4239-a6a6-d228ae5655b7",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "91f98e89-01e9-4c37-95a2-726cab631c36",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "0bf35bbf-a0c4-4e28-9ae8-5e3ce45c0e50",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "85f062b2-883a-4fc5-a4c4-7a66454192fe",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "58c812bb-eab0-4af7-bf42-15f45cb4b7f1",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 5,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "ab486722-2d5a-4ea0-ba35-a49b7c5012ba",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 6
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e22ab86a-1f5d-4de9-92fb-655e26dc5153",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "f98406ba-17a5-4c7c-b290-759b76d61ff7",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 5
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "d17b3f24-e1e0-4579-b7bc-2852940a702b",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 11
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "b4de32aa-7490-446f-ac90-f84313e27f7f",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "namingstrategy-uses": {
+      "baseline": {
+        "median_file_reads": 0,
+        "median_tool_calls": 1,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "45d85c53-eda0-4403-9adb-f33c2b727ab3",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "9ceb2087-ce6d-4440-9e37-ecb688043c52",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "abf688d9-dbe5-49ef-91b5-c5c352e53688",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "420bff6f-108d-415c-a904-05066dd19210",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "8fe1ff82-7756-4e2a-bd4e-52d6956d4a6d",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 1,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "9faa2fbe-2f0d-49b3-a2d3-5fa4d9ce27df",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e4d03628-c5a9-42bd-846a-5814889bf0e9",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "c6cc8ef9-6e74-4b06-aca3-e9bfc13f74d9",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "b169d281-da67-4d2a-b311-58a2360de1b5",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "af4594c5-7031-497a-b417-ea464743968b",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "postgres-datasource-path": {
+      "baseline": {
+        "median_file_reads": 0,
+        "median_tool_calls": 2,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "33a6cdb8-d9ec-4686-88d8-a7926ffaa28c",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2b8f09d7-1eb2-41c2-8560-cf9828cefcb6",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "442a8370-3584-4634-837c-007ff97be9a4",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "1e31708b-bd06-4e30-9739-ec2f47acc011",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "9befccdf-11e9-46a4-b447-ef57299c0a71",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 1,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "1c136ac4-3ce6-46a5-9fe4-b6ee02b3ad15",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "437c3cfc-2009-4a9c-9ada-6a097139708a",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2ca0399c-6f02-440e-a189-d631e9887a14",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "1733432f-8ca7-4757-ae3b-392c69dcbc91",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e70d3a9e-5642-4426-ab0b-5de75615b2fd",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "sqb-datasource-path": {
+      "baseline": {
+        "median_file_reads": 0,
+        "median_tool_calls": 4,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "aa41fb7a-0a17-40c2-834a-51351e52ca9a",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "ea2b0c07-41ec-4f84-b1d8-49599940d4a6",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "f01c07b9-ffa7-48c2-b5b2-4eac14617d31",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "72478c6e-23cf-43d3-a845-e06e37a95f37",
+            "metrics": {
+              "file_reads": 1,
+              "tool_calls": 7
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "804eec4f-c323-413c-be68-8104d07def8b",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 2,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "7ddbdda2-bc66-401c-881e-7442b10ebaa9",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "fc757158-f85e-426e-a0c0-44a277443929",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "a36a71d2-b17c-40ed-b40b-54bdea3f2510",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "060329a3-6c23-4aac-a3a5-c8ebc0f2ff4f",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "69e9fbe4-8b2d-44cb-a2c0-019311e7ac95",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "entitymanager-define": {
+      "baseline": {
+        "median_file_reads": 0,
+        "median_tool_calls": 2,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "ee67f5b2-4f1c-4ac0-924f-d8203ba7bb2f",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 3
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "79f76659-829a-46da-bac1-5b9e9968f81b",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "fcc8ee87-4443-4937-9e19-150276cd6ea2",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "1293cf04-6107-4ae5-ac6a-9dad9ec8eae4",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 4
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2fc7fcc9-920e-4b5d-b790-5ed457884afe",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 2,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "3107d6e7-6fdf-4633-8903-150620d28430",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "eac85eb1-ec15-4d2f-bee9-25cfec4eee84",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "780cdd22-66c1-46bf-be31-4f9f81c2cf2f",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "7e7d6ded-a22c-4709-9ad1-d3b87b1acfd0",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "eb5a7a63-dd7f-49b0-81b7-e1346cec4667",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 2
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    }
+  }
+}

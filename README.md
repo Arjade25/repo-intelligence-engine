@@ -20,14 +20,66 @@ The engine parses a TypeScript repo with the **TypeScript Compiler API** and sto
 
 The `engine/` functions are callable directly (CLI, tests) — the engine is the product. It also supports Claude Code and any other MCP-compatible client through an integrated MCP server.
 
-## Status
+## Architecture
 
-Early scaffold. Core is being built in the order in the [project plan](../repository-intelligence-engine-plan.md):
-indexer → storage + basic queries → references → `dependency_path`/`reindex` → MCP server → benchmark harness → docs.
+```
+  Repository (.ts/.tsx)
+          │
+          ▼
+  ┌───────────────────┐   TS Compiler API, two modes:
+  │      Indexer      │   • ts.Program        → symbols + import edges (batch)
+  │  src/indexer/     │   • ts.LanguageService → findReferences (separate pass)
+  └───────────────────┘
+          │
+          ▼
+  ┌───────────────────┐   symbols     (name, kind, file, line)
+  │  Index (SQLite)   │   edges       (from_file → to_file, file-level)
+  │  src/storage/     │   references_ (symbol → use site)
+  └───────────────────┘
+          │
+          ▼
+  ┌───────────────────┐   pure functions over the index —
+  │   Query Engine    │   find_module, find_related_files,
+  │  src/engine/      │   find_symbol_references, dependency_path, reindex
+  └───────────────────┘
+          │
+          ▼
+  ┌───────────────────┐   thin adapter: parse args → call engine.
+  │    MCP Server     │   No query logic lives here.
+  │  src/mcp-server/  │
+  └───────────────────┘
+          │
+          ▼
+  Claude Code / any MCP-compatible client
+```
+
+Two design decisions worth calling out:
+
+- **Edges are file-level, not symbol-level.** An import statement lives at file scope — no single symbol "owns" it — and barrel re-exports, side-effect imports (`import './styles'`), and namespace imports have no symbol on one end at all. Storing `from_file → to_file` represents all of them cleanly; `symbols.file_path` bridges back to symbols for free, so `dependency_path` still answers symbol-to-symbol questions by resolving each end to its file and running a BFS over the edge table.
+- **The MCP server is an adapter, not the product.** Everything is callable without MCP in the loop, which is what keeps the core testable — a test asserts that an MCP call and the equivalent direct engine call return identical results.
 
 ## Benchmark
 
-_Before/after table lands here once the harness (step 6) runs against a real repo — median file-reads and tool-calls per task, baseline vs. MCP-assisted._
+Measured against [TypeORM](https://github.com/typeorm/typeorm) @ `04ff4dae` — 496 source files, 1,108 indexed symbols, 2,750 import edges. Six fixed navigation tasks with pre-registered oracle answers (verified by independent grep, not engine output), run under two arms with Claude Code in headless mode:
+
+- **baseline** — built-in tools only (Read/Grep/Glob)
+- **assisted** — same tools **plus** this engine's MCP server
+
+Protocol: fresh session per run (no cross-run contamination), 5 runs per arm per task, medians reported, metrics machine-counted from session transcripts (`tool_use` blocks), never hand-tallied. Every run in both arms located its oracle answer.
+
+| Task | Baseline (reads / calls) | Assisted (reads / calls) |
+|---|---|---|
+| Where is class X defined? | 0 / 1 | 0 / 1 |
+| Impact: who imports `Driver.ts`? † | 0 / 3 | 0 / **2** |
+| Where is interface Y used? | 0 / 1 | 0 / 1 |
+| Import path A → B (direct) | 0 / 2 | 0 / **1** |
+| Import path A → B (multi-hop) | 0 / 4 | 0 / **2** |
+| Define + what does it import? | 0 / 2 | 0 / 2 |
+| **Total (median calls)** | **13** | **9** |
+
+**Honest reading:** the engine wins on multi-hop and structural queries (dependency paths halved; impact analysis −1 call) and ties on tasks a good grep already answers in 1–2 calls — a modern agent's baseline is strong, and single-symbol lookups have little headroom. ~30% fewer tool-calls overall.
+
+**† What the benchmark caught:** the first measurement of the impact task showed the assisted arm *losing* (median 5 calls vs. 3, spread up to 11). Transcripts revealed an interface bug, not a data bug: the engine's path-taking tools did exact string matching, so the Windows-style backslash and repo-relative paths agents naturally pass returned empty results — and one tool answered *"symbol not indexed"* when only the path filter had failed. Agents did the rational thing and fell back to grep, doubling the work. After fixing path resolution (normalization + unique-suffix matching + honest "filter dropped" notes), the task flipped to a win and run-to-run variance collapsed from 3–11 calls to 2–3. The raw per-run data for both measurements is in `benchmarks/results/`.
 
 ## Development
 

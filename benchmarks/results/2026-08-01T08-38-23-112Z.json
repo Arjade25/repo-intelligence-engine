@@ -1,0 +1,32 @@
+{
+  "repo": {
+    "name": "typeorm",
+    "url": "https://github.com/typeorm/typeorm.git",
+    "commit": "04ff4daedcf60fa4ffd0d5d33bbafaac1a9bbc96",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "TypeORM ORM library, 496 src/*.ts files, 1108 indexed symbols, 2750 file-level edges - replaces the earlier 35-file nestjs-realworld target, which was too small for a compelling grep baseline (plan §12: 'benchmark repo choice matters'). tsconfig.rie.json is a self-contained config added for indexing (upstream tsconfig extends @tsconfig/node20, which needs node_modules; ours doesn't). Oracles below were verified with independent grep ground-truth, not engine output alone."
+  },
+  "arms": [
+    "assisted"
+  ],
+  "runsPerArm": 1,
+  "summary": {
+    "postgres-datasource-path": {
+      "assisted": {
+        "median_file_reads": 0,
+        "median_tool_calls": 1,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "debf096c-ddf5-4143-9021-2ce13ef26296",
+            "metrics": {
+              "file_reads": 0,
+              "tool_calls": 1
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    }
+  }
+}
