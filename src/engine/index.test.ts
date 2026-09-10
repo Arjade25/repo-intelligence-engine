@@ -56,6 +56,13 @@ describe("engine queries (fixtures/sample-repo)", () => {
     expect(findModule(db, "DoesNotExist")).toEqual([]);
   });
 
+  it("find_symbol_references surfaces the barrel that star-re-exports a symbol", () => {
+    // End-to-end: index.ts is `export * from "./mathUtils"`, so add() is part of
+    // the package's public surface - but that statement never writes the name
+    // "add", so this is invisible to reference search alone.
+    expect(findSymbolReferences(db, "add").re_exported_by).toEqual([indexTs]);
+  });
+
   it("find_related_files: main.ts imports index.ts, shapes.ts, sideEffect.ts; imported by nothing", () => {
     // Hand-traced: main.ts imports { add, PI } from ./index, { Circle } from
     // ./shapes, and side-effect-imports ./sideEffect. Nothing imports main.ts.
@@ -173,6 +180,40 @@ describe("engine queries with ambiguous symbol names (synthetic db)", () => {
 });
 
 /**
+ * Star re-exports (the entity-decorator benchmark regression): `export * from`
+ * names no identifier, so no reference search can see it. On TypeORM this was
+ * the @Entity decorator's ONLY use outside its own file, and omitting it made a
+ * live public API read as dead code.
+ */
+describe("find_symbol_references re_exported_by (synthetic db)", () => {
+  const db = openDb(":memory:");
+  db.exec(`
+    INSERT INTO symbols (id, name, kind, file_path, line_start, line_end) VALUES
+      (1, 'Decorated', 'function', '/repo/src/decorator/Decorated.ts', 1, 9),
+      (2, 'Plain',     'class',    '/repo/src/Plain.ts', 1, 4);
+    INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type) VALUES
+      ('/repo/src/index.ts',  '/repo/src/decorator/Decorated.ts', NULL, 'reexport_star'),
+      ('/repo/src/barrel.ts', '/repo/src/decorator/Decorated.ts', NULL, 'reexport_star'),
+      ('/repo/src/user.ts',   '/repo/src/Plain.ts',               2,    'imports');
+  `);
+
+  it("reports barrel files that star-re-export the declaring module", () => {
+    const result = findSymbolReferences(db, "Decorated");
+    expect(result.symbol_indexed).toBe(true);
+    expect(result.references).toEqual([]); // no identifier anywhere - the whole point
+    expect(result.re_exported_by).toEqual(["/repo/src/barrel.ts", "/repo/src/index.ts"]);
+  });
+
+  it("omits re_exported_by when nothing star-re-exports the module", () => {
+    // /repo/src/Plain.ts IS imported, but by a named import - not a re-export.
+    // Guards against counting every to_symbol_id-NULL edge as a star re-export.
+    const result = findSymbolReferences(db, "Plain");
+    expect(result.symbol_indexed).toBe(true);
+    expect(result.re_exported_by).toBeUndefined();
+  });
+});
+
+/**
  * Path-format tolerance (the driver-impact benchmark regression): agents on
  * Windows pass backslash and repo-relative paths, but the index stores absolute
  * forward-slash paths. Exact string equality returned empty results for every
@@ -255,13 +296,17 @@ describe("path resolution in path-taking queries (synthetic db)", () => {
 
 /** Circular dependency detection (plan §9 stretch 1; step 8 done-when: flags a known injected cycle). */
 describe("find_circular_dependencies (synthetic db)", () => {
-  /** Build an index containing only the given from->to file edges. */
-  function dbWithEdges(edges: [string, string][]) {
+  /**
+   * Build an index containing only the given edges. A third tuple element marks
+   * the edge type-only (erased at compile time); omitted means a value import.
+   */
+  function dbWithEdges(edges: ([string, string] | [string, string, "type-only"])[]) {
     const db = openDb(":memory:");
     const insert = db.prepare(
-      `INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type) VALUES (?, ?, NULL, 'imports')`
+      `INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type, is_type_only)
+       VALUES (?, ?, NULL, 'imports', ?)`
     );
-    for (const [from, to] of edges) insert.run(from, to);
+    for (const [from, to, kind] of edges) insert.run(from, to, kind === "type-only" ? 1 : 0);
     return db;
   }
 
@@ -333,5 +378,62 @@ describe("find_circular_dependencies (synthetic db)", () => {
       ["/r/right.ts", "/r/bottom.ts"],
     ]);
     expect(findCircularDependencies(db)).toEqual([]);
+  });
+
+  it("ignores a type-only cycle by default, and reports it on request", () => {
+    const db = dbWithEdges([
+      ["/r/a.ts", "/r/b.ts", "type-only"],
+      ["/r/b.ts", "/r/a.ts", "type-only"],
+    ]);
+    // Erased at compile time -> not a runtime cycle.
+    expect(findCircularDependencies(db)).toEqual([]);
+
+    const withTypes = findCircularDependencies(db, { includeTypeOnly: true });
+    expect(withTypes).toHaveLength(1);
+    expect(withTypes[0].files).toEqual(["/r/a.ts", "/r/b.ts"]);
+  });
+
+  it("still reports a cycle that is only closed by a value edge", () => {
+    const db = dbWithEdges([
+      ["/r/a.ts", "/r/b.ts", "type-only"],
+      ["/r/b.ts", "/r/a.ts"], // value import closes the loop at runtime... but
+    ]);
+    // ...the a->b half is erased, so at runtime there is no loop: b imports a,
+    // and a imports nothing. Not a runtime cycle.
+    expect(findCircularDependencies(db)).toEqual([]);
+    expect(findCircularDependencies(db, { includeTypeOnly: true })).toHaveLength(1);
+  });
+
+  it("keeps a file pair joined by BOTH a type-only and a value import", () => {
+    // Filtering happens before DISTINCT, so the value edge must survive.
+    const db = dbWithEdges([
+      ["/r/a.ts", "/r/b.ts", "type-only"],
+      ["/r/a.ts", "/r/b.ts"], // same pair, real runtime import
+      ["/r/b.ts", "/r/a.ts"],
+    ]);
+    const cycles = findCircularDependencies(db);
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0].files).toEqual(["/r/a.ts", "/r/b.ts"]);
+  });
+});
+
+/** End-to-end over real TypeScript source, not hand-inserted rows. */
+describe("find_circular_dependencies over fixtures/type-only-repo", () => {
+  const db = openDb(":memory:");
+  indexRepository(db, join(__dirname, "../../fixtures/type-only-repo/tsconfig.json"));
+
+  it("reports the value cycle (c <-> d) but not the type-only one (a <-> b)", () => {
+    const cycles = findCircularDependencies(db);
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0].files.map((f) => f.split("/").pop())).toEqual(["c.ts", "d.ts"]);
+  });
+
+  it("reports both cycles when type-only edges are included", () => {
+    const cycles = findCircularDependencies(db, { includeTypeOnly: true });
+    const groups = cycles.map((c) => c.files.map((f) => f.split("/").pop()).sort()).sort();
+    expect(groups).toEqual([
+      ["a.ts", "b.ts"],
+      ["c.ts", "d.ts"],
+    ]);
   });
 });

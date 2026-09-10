@@ -52,7 +52,10 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
     "Everywhere a symbol is used. Each reference includes the declaring file (declared_in) and kind, " +
       "since one name can match several distinct symbols; pass file_path to scope to one declaration. " +
       "Check symbol_indexed in the result: false means the name isn't in the index at all (e.g. class " +
-      "methods are never indexed - only top-level declarations), NOT that it's unused.",
+      "methods are never indexed - only top-level declarations), NOT that it's unused. " +
+      "re_exported_by lists barrel files that re-export the declaring module via `export * from`: those " +
+      "never appear in references (a star re-export names no identifier for a reference search to match), " +
+      "but are frequently a symbol's only use outside its own file.",
     {
       symbol: z.string().describe("symbol name"),
       file_path: z
@@ -73,11 +76,20 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
 
   server.tool(
     "find_circular_dependencies",
-    "Every import cycle in the repo. Returns one entry per mutually-entangled group of files " +
+    "Import cycles in the repo. Returns one entry per mutually-entangled group of files " +
       "(a strongly connected component), each with a concrete example cycle. Groups are ordered " +
-      "largest first. An empty array means the import graph is acyclic.",
-    {},
-    async () => json(findCircularDependencies(db))
+      "largest first. An empty array means the import graph is acyclic. " +
+      "By default only RUNTIME cycles are reported: `import type` edges are erased by the " +
+      "TypeScript compiler and cannot cause a runtime cycle. Pass include_type_only to see " +
+      "source-level entanglement too — that number is usually much larger and is not a bug.",
+    {
+      include_type_only: z
+        .boolean()
+        .optional()
+        .describe("count type-only imports as edges (default false)"),
+    },
+    async ({ include_type_only }) =>
+      json(findCircularDependencies(db, { includeTypeOnly: include_type_only }))
   );
 
   server.tool(

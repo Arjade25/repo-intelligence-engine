@@ -39,7 +39,7 @@ describe("indexRepository (fixtures/sample-repo)", () => {
     expect(count).toBe(6);
   });
 
-  it("gives a barrel re-export (`export * from`) a NULL to_symbol_id", () => {
+  it("tags a barrel re-export (`export * from`) as reexport_star with a NULL to_symbol_id", () => {
     const edges = db
       .prepare("SELECT * FROM edges WHERE from_file LIKE '%/index.ts'")
       .all() as EdgeRow[];
@@ -47,6 +47,9 @@ describe("indexRepository (fixtures/sample-repo)", () => {
     for (const edge of edges) {
       expect(edge.to_symbol_id).toBeNull();
       expect(edge.to_file).toMatch(/\/(mathUtils|shapes)\.ts$/);
+      // The distinct edge_type is what makes these recoverable: a star re-export
+      // names no identifier, so reference search alone can never surface it.
+      expect(edge.edge_type).toBe("reexport_star");
     }
   });
 
@@ -56,6 +59,8 @@ describe("indexRepository (fixtures/sample-repo)", () => {
       .get() as EdgeRow | undefined;
     expect(edge).toBeDefined();
     expect(edge!.to_symbol_id).toBeNull();
+    // Also NULL-symbol, but NOT a re-export - the two must stay distinguishable.
+    expect(edge!.edge_type).toBe("imports");
   });
 
   it("gives a named import through a barrel a NULL to_symbol_id (symbol lives elsewhere)", () => {
@@ -89,5 +94,54 @@ describe("indexRepository (fixtures/sample-repo)", () => {
       .prepare("SELECT COUNT(*) AS count FROM edges WHERE to_file LIKE '%node_modules%'")
       .get() as { count: number };
     expect(anyIntoNodeModules.count).toBe(0);
+  });
+});
+
+/**
+ * Type-only import detection. TypeScript erases these at compile time, so they are
+ * real source dependencies but not runtime ones — the distinction cycle detection
+ * relies on. Uses its own fixture so sample-repo's hand-counted totals stay fixed.
+ */
+describe("indexRepository: is_type_only (fixtures/type-only-repo)", () => {
+  const db = openDb(":memory:");
+  indexRepository(db, join(__dirname, "../../fixtures/type-only-repo/tsconfig.json"));
+
+  /** Every edge between two files, by basename. */
+  function edgesBetween(from: string, to: string): EdgeRow[] {
+    return db
+      .prepare(`SELECT * FROM edges WHERE from_file LIKE ? AND to_file LIKE ?`)
+      .all(`%/${from}`, `%/${to}`) as EdgeRow[];
+  }
+
+  it("flags a whole-clause `import type { B } from './b'`", () => {
+    const edges = edgesBetween("a.ts", "b.ts");
+    expect(edges).toHaveLength(1);
+    expect(edges[0].is_type_only).toBe(1);
+  });
+
+  it("leaves a plain value import unflagged", () => {
+    const edges = edgesBetween("c.ts", "d.ts");
+    expect(edges).toHaveLength(1);
+    expect(edges[0].is_type_only).toBe(0);
+  });
+
+  it("splits one mixed statement into a type-only edge and a value edge", () => {
+    // mixed.ts: `import { type A, aValue } from "./a"` - same statement, same file
+    // pair, but only the `type A` half is erased.
+    const edges = edgesBetween("mixed.ts", "a.ts");
+    expect(edges).toHaveLength(2);
+    expect(edges.map((e) => e.is_type_only).sort()).toEqual([0, 1]);
+
+    const typeEdge = edges.find((e) => e.is_type_only === 1)!;
+    const aInterface = db
+      .prepare("SELECT id FROM symbols WHERE name = 'A' AND kind = 'interface'")
+      .get() as { id: number };
+    expect(typeEdge.to_symbol_id).toBe(aInterface.id);
+  });
+
+  it("flags a type-only re-export (`export type { B } from './b'`)", () => {
+    const edges = edgesBetween("mixed.ts", "b.ts");
+    expect(edges).toHaveLength(1);
+    expect(edges[0].is_type_only).toBe(1);
   });
 });

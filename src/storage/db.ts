@@ -21,6 +21,8 @@ export interface EdgeRow {
   to_file: string;
   to_symbol_id: number | null;
   edge_type: string;
+  /** 1 for type-only imports/re-exports, which TypeScript erases at compile time. */
+  is_type_only: number;
 }
 
 export interface ReferenceRow {
@@ -43,7 +45,27 @@ export function openDb(path = "repo-index.db"): Database.Database {
   db.pragma("busy_timeout = 30000");
   const schema = readFileSync(join(__dirname, "schema.sql"), "utf8");
   db.exec(schema);
+  migrate(db);
   return db;
+}
+
+/**
+ * Bring an index file created by an older build up to the current schema.
+ *
+ * `CREATE TABLE IF NOT EXISTS` silently leaves an existing table's columns alone,
+ * so a pre-existing repo-index.db would otherwise fail every query mentioning a
+ * newly added column. Migrations here must be additive and idempotent.
+ *
+ * NOTE: adding a column backfills the SQL default, not real data — an index built
+ * before `is_type_only` existed reports every edge as a value import until it is
+ * rebuilt. The index is a derived artifact (a full reindex of a 496-file repo
+ * takes ~20s), so `reindex` is the intended fix rather than a data migration.
+ */
+function migrate(db: Database.Database): void {
+  const columns = db.prepare(`PRAGMA table_info(edges)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "is_type_only")) {
+    db.exec(`ALTER TABLE edges ADD COLUMN is_type_only INTEGER NOT NULL DEFAULT 0`);
+  }
 }
 
 /**

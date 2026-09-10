@@ -19,6 +19,17 @@ function dumpAll(db: Database.Database) {
   };
 }
 
+/**
+ * These two tests are inherently slow: each does several FULL reindexes, and every
+ * reindex builds a ts.Program and then a ts.LanguageService over the whole fixture.
+ * Idle they take ~2.5s and ~3.6s, but under parallel load they have been measured
+ * at 4.5-5.3s - i.e. straddling vitest's 5000ms default, which made them fail
+ * intermittently in a loaded full-suite run while passing in isolation. The work is
+ * legitimate, not a hang, so give them explicit headroom instead of leaving a
+ * load-dependent flake in the suite.
+ */
+const SLOW_REINDEX_TIMEOUT_MS = 30_000;
+
 describe("reindex", () => {
   it("reproduces a byte-identical index on repeated runs against an unchanged repo", () => {
     const db = openDb(":memory:");
@@ -30,7 +41,7 @@ describe("reindex", () => {
 
     expect(second).toEqual(first);
     expect(first.symbols.length).toBeGreaterThan(0); // sanity: not comparing two empty dumps
-  });
+  }, SLOW_REINDEX_TIMEOUT_MS);
 
   it("reflects an added file, then a removed file, on a changed repo", () => {
     const dir = mkdtempSync(join(tmpdir(), "rie-reindex-"));
@@ -71,5 +82,5 @@ describe("reindex", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, SLOW_REINDEX_TIMEOUT_MS);
 });

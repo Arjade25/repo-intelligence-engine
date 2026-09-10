@@ -48,6 +48,14 @@ export interface SymbolReferencesResult {
   declarations: FindModuleResult[]; // every indexed declaration of this name
   references: SymbolReference[];
   note?: string;                    // set when symbol_indexed is false: explains why
+  /**
+   * Files that re-export the declaring module wholesale (`export * from './X'`).
+   * These never appear in `references`: a star re-export names no identifier, so
+   * TypeScript's findReferences has nothing to match on - yet a barrel file is
+   * exactly what someone asking "where is this used?" wants to know about, and
+   * it is often a symbol's ONLY non-self reference. Omitted when empty.
+   */
+  re_exported_by?: string[];
 }
 
 /** How an ambiguous symbol name was resolved to a file (candidates > 1 = ambiguous). */
@@ -149,6 +157,13 @@ function resolveIndexedPath(
  * references: []) from "not in the index at all" (symbol_indexed: false + note) -
  * previously both returned a bare [], which silently misled for names the index
  * never records, like class methods.
+ *
+ * `re_exported_by` covers the blind spot that identifier-based reference search
+ * has by construction: `export * from './X'` re-exports X's symbols without
+ * writing any of their names, so no reference search can see it. Measured on
+ * TypeORM, the @Entity decorator's only use outside its own file was exactly
+ * such a barrel re-export, and reporting 0 external references without it read
+ * as "dead code".
  */
 export function findSymbolReferences(
   db: Database.Database,
@@ -210,6 +225,20 @@ export function findSymbolReferences(
     declarations,
     references,
   };
+
+  const declFiles = [...new Set(declarations.map((d) => d.file_path))];
+  if (declFiles.length > 0) {
+    const placeholders = declFiles.map(() => "?").join(", ");
+    const reExporters = db
+      .prepare(
+        `SELECT DISTINCT from_file FROM edges
+          WHERE edge_type = 'reexport_star' AND to_file IN (${placeholders})
+          ORDER BY from_file`
+      )
+      .all(...declFiles) as { from_file: string }[];
+    if (reExporters.length > 0) result.re_exported_by = reExporters.map((r) => r.from_file);
+  }
+
   if (note !== undefined) result.note = note;
   if (!result.symbol_indexed) {
     result.note =
@@ -281,8 +310,18 @@ export interface CircularDependency {
   example_cycle: string[];
 }
 
+export interface CircularDependencyOptions {
+  /**
+   * Count `import type` edges, which TypeScript erases at compile time. Default
+   * false — a type-only cycle is not a runtime cycle, and including them reported
+   * a 227-file "circular dependency" on TypeORM that largely disappears once the
+   * erased edges are dropped. Set true to see source-level entanglement instead.
+   */
+  includeTypeOnly?: boolean;
+}
+
 /**
- * find_circular_dependencies(): every import cycle in the repo (plan §9 stretch 1).
+ * find_circular_dependencies(): import cycles in the repo (plan §9 stretch 1).
  *
  * Reports strongly connected components rather than enumerating every simple
  * cycle: a tangled component can contain exponentially many simple cycles, so
@@ -291,12 +330,22 @@ export interface CircularDependency {
  * to itself). Each group carries one concrete example cycle so the result is
  * actionable rather than just a set membership claim.
  *
+ * By default only runtime edges count — see CircularDependencyOptions.
+ *
  * Groups are ordered largest first — the biggest tangle is usually the one worth
  * breaking. Uses Tarjan's algorithm over the file-level edges. Recursion depth is
  * bounded by the longest import chain (tens, in real codebases), not file count.
  */
-export function findCircularDependencies(db: Database.Database): CircularDependency[] {
-  const edges = db.prepare(`SELECT DISTINCT from_file, to_file FROM edges`).all() as {
+export function findCircularDependencies(
+  db: Database.Database,
+  options: CircularDependencyOptions = {}
+): CircularDependency[] {
+  // DISTINCT is applied after filtering, so a file pair joined by both a type-only
+  // and a value import correctly survives as a runtime edge.
+  const sql = options.includeTypeOnly
+    ? `SELECT DISTINCT from_file, to_file FROM edges`
+    : `SELECT DISTINCT from_file, to_file FROM edges WHERE is_type_only = 0`;
+  const edges = db.prepare(sql).all() as {
     from_file: string;
     to_file: string;
   }[];

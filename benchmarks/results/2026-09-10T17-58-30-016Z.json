@@ -1,0 +1,112 @@
+{
+  "repo": {
+    "name": "typeorm",
+    "url": "https://github.com/typeorm/typeorm.git",
+    "commit": "04ff4daedcf60fa4ffd0d5d33bbafaac1a9bbc96",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "TypeORM ORM library, 496 src/*.ts files, 1108 indexed symbols, 2750 file-level edges - replaces the earlier 35-file nestjs-realworld target, which was too small for a compelling grep baseline (plan §12: 'benchmark repo choice matters'). tsconfig.rie.json is a self-contained config added for indexing (upstream tsconfig extends @tsconfig/node20, which needs node_modules; ours doesn't). Oracles below were verified with independent grep ground-truth, not engine output alone."
+  },
+  "arms": [
+    "baseline",
+    "assisted"
+  ],
+  "runsPerArm": 1,
+  "summary": {
+    "entity-decorator-references": {
+      "baseline": {
+        "median_tool_calls": 13,
+        "median_tokens": 307365,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "ff3ce889-e3c6-46bb-b209-85c384085976",
+            "metrics": {
+              "tool_calls": 13,
+              "total_tokens": 307365
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 18,
+        "median_tokens": 441776,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "096e4eb2-08ba-43a5-97f5-7be8fae5be51",
+            "metrics": {
+              "tool_calls": 18,
+              "total_tokens": 441776
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "mongofindmany-datasource-path": {
+      "baseline": {
+        "median_tool_calls": 19,
+        "median_tokens": 529500,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "9bad37c7-2dbc-4714-8e3c-55ff56544d61",
+            "metrics": {
+              "tool_calls": 19,
+              "total_tokens": 529500
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 1,
+        "median_tokens": 40522,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "17614eeb-0db5-4487-bcd7-d3218dbb9cd5",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 40522
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "runtime-cycle-check": {
+      "baseline": {
+        "median_tool_calls": 21,
+        "median_tokens": 1187243,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "d9187880-ec55-4976-9da9-3cf3ae92b737",
+            "metrics": {
+              "tool_calls": 21,
+              "total_tokens": 1187243
+            },
+            "located_oracle": false
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 1,
+        "median_tokens": 39799,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "083009c6-5e87-4a4d-8b65-23b1faa59db9",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 39799
+            },
+            "located_oracle": false
+          }
+        ]
+      }
+    }
+  }
+}

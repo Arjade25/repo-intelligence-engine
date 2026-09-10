@@ -99,6 +99,15 @@ export function getTopLevelDeclarations(sourceFile: ts.SourceFile): TopLevelDecl
   return results;
 }
 
+/** One name pulled in by an import/re-export, with its own inline `type` modifier. */
+interface ImportedName {
+  name: string;
+  isTypeOnly: boolean;
+}
+
+/** 'imports' covers every named/default/namespace/side-effect edge; 'reexport_star' is `export * from`. */
+type EdgeType = "imports" | "reexport_star";
+
 /** Walk top-level statements, recording exported/top-level declarations. */
 function extractSymbols(db: Database.Database, sourceFile: ts.SourceFile, _checker: ts.TypeChecker): void {
   const insert = db.prepare(
@@ -121,6 +130,8 @@ function extractSymbols(db: Database.Database, sourceFile: ts.SourceFile, _check
  *     row (name, resolved_file) exists
  *   - side-effect / namespace / default / `export * from` -> one file->file edge,
  *     to_symbol_id NULL
+ *   - `export * from` additionally gets edge_type 'reexport_star' rather than
+ *     'imports', so it can be told apart from the other NULL-symbol edges
  */
 function extractEdges(
   db: Database.Database,
@@ -130,7 +141,8 @@ function extractEdges(
   host: ts.CompilerHost
 ): void {
   const insertEdge = db.prepare(
-    `INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type) VALUES (?, ?, ?, 'imports')`
+    `INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type, is_type_only)
+     VALUES (?, ?, ?, ?, ?)`
   );
   const findSymbol = db.prepare(`SELECT id FROM symbols WHERE name = ? AND file_path = ?`);
 
@@ -148,14 +160,32 @@ function extractEdges(
     return normalizePath(resolved.resolvedModule.resolvedFileName);
   };
 
-  const writeEdges = (toFile: string, names: string[]) => {
+  /**
+   * Type-only-ness is decided per edge, not per statement: `import { type A, b }`
+   * is one statement carrying one erased edge and one real one. `clauseTypeOnly`
+   * (from `import type { ... }`) applies to every name in the statement; a name's
+   * own inline `type` modifier applies to just that one.
+   */
+  const writeEdges = (
+    toFile: string,
+    names: ImportedName[],
+    clauseTypeOnly: boolean,
+    edgeType: EdgeType = "imports"
+  ) => {
     if (names.length === 0) {
-      insertEdge.run(fromFile, toFile, null);
+      // default / namespace / side-effect import, or `export * from`.
+      insertEdge.run(fromFile, toFile, null, edgeType, clauseTypeOnly ? 1 : 0);
       return;
     }
-    for (const name of names) {
+    for (const { name, isTypeOnly } of names) {
       const row = findSymbol.get(name, toFile) as { id: number } | undefined;
-      insertEdge.run(fromFile, toFile, row ? row.id : null);
+      insertEdge.run(
+        fromFile,
+        toFile,
+        row ? row.id : null,
+        edgeType,
+        clauseTypeOnly || isTypeOnly ? 1 : 0
+      );
     }
   };
 
@@ -164,28 +194,33 @@ function extractEdges(
       const toFile = resolveSpecifier(stmt.moduleSpecifier);
       if (!toFile) continue; // unresolvable (e.g. bare external package) - skip for v1
 
-      const names: string[] = [];
+      const names: ImportedName[] = [];
       const clause = stmt.importClause;
       if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
         for (const el of clause.namedBindings.elements) {
-          names.push((el.propertyName ?? el.name).text);
+          names.push({ name: (el.propertyName ?? el.name).text, isTypeOnly: el.isTypeOnly });
         }
       }
       // default imports and namespace imports (`import * as ns`) fall through
       // with no names -> a single NULL edge, same as a side-effect import.
-      writeEdges(toFile, names);
+      writeEdges(toFile, names, clause?.isTypeOnly === true);
     } else if (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier) {
       const toFile = resolveSpecifier(stmt.moduleSpecifier);
       if (!toFile) continue;
 
-      const names: string[] = [];
+      const names: ImportedName[] = [];
       if (stmt.exportClause && ts.isNamedExports(stmt.exportClause)) {
         for (const el of stmt.exportClause.elements) {
-          names.push((el.propertyName ?? el.name).text);
+          names.push({ name: (el.propertyName ?? el.name).text, isTypeOnly: el.isTypeOnly });
         }
       }
-      // `export * from './x'` has no exportClause -> single NULL edge.
-      writeEdges(toFile, names);
+      // `export * from './x'` (no clause) and `export * as ns from './x'` (a
+      // NamespaceExport) both re-export the module wholesale, so they surface
+      // every symbol it declares without ever naming one. Tagged distinctly
+      // because that makes them un-findable by identifier search - see
+      // findSymbolReferences' re_exported_by.
+      const isStarReExport = !stmt.exportClause || ts.isNamespaceExport(stmt.exportClause);
+      writeEdges(toFile, names, stmt.isTypeOnly, isStarReExport ? "reexport_star" : "imports");
     }
   }
 }

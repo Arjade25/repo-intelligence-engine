@@ -1,0 +1,304 @@
+{
+  "repo": {
+    "name": "typeorm",
+    "url": "https://github.com/typeorm/typeorm.git",
+    "commit": "04ff4daedcf60fa4ffd0d5d33bbafaac1a9bbc96",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "TypeORM ORM library, 496 src/*.ts files, 1108 indexed symbols, 2750 file-level edges - replaces the earlier 35-file nestjs-realworld target, which was too small for a compelling grep baseline (plan §12: 'benchmark repo choice matters'). tsconfig.rie.json is a self-contained config added for indexing (upstream tsconfig extends @tsconfig/node20, which needs node_modules; ours doesn't). Oracles below were verified with independent grep ground-truth, not engine output alone."
+  },
+  "arms": [
+    "baseline",
+    "assisted"
+  ],
+  "runsPerArm": 5,
+  "summary": {
+    "entity-decorator-references": {
+      "baseline": {
+        "median_tool_calls": 6,
+        "median_tokens": 190226,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "8689d1a0-beed-404b-b460-877cf4fc477f",
+            "metrics": {
+              "tool_calls": 7,
+              "total_tokens": 206101
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2040bd30-6de2-4cdd-bcdc-f34fb83cc71e",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 143695
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "ed3442b4-bbba-4eb5-81f2-21319c808029",
+            "metrics": {
+              "tool_calls": 7,
+              "total_tokens": 258828
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "4a4dbaff-d356-42e3-9f64-41f2cb6f7e6e",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 188509
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "4e4bcffb-9ee7-42a0-9bc1-5aa29872f9d0",
+            "metrics": {
+              "tool_calls": 6,
+              "total_tokens": 190226
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 5,
+        "median_tokens": 174330,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "1c8b19b7-85b4-4f8b-a2f7-fab9fed27f51",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 148349
+            },
+            "located_oracle": false
+          },
+          {
+            "session_id": "917809df-2a45-4b62-863f-4f17cbd4e0f5",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 174330
+            },
+            "located_oracle": false
+          },
+          {
+            "session_id": "360d6527-3045-418f-84d1-e82fca6e2fdf",
+            "metrics": {
+              "tool_calls": 6,
+              "total_tokens": 210714
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "959f3744-b42a-459d-af56-43b4059b3563",
+            "metrics": {
+              "tool_calls": 8,
+              "total_tokens": 302881
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "7427afab-1bd9-4998-aa56-44186c6a8dcf",
+            "metrics": {
+              "tool_calls": 4,
+              "total_tokens": 149982
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "mongofindmany-datasource-path": {
+      "baseline": {
+        "median_tool_calls": 21,
+        "median_tokens": 607413,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "827fd601-10eb-4381-b293-e59370c6404b",
+            "metrics": {
+              "tool_calls": 23,
+              "total_tokens": 689666
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "6571b889-4b88-4fee-8c3d-ddda8a8482b3",
+            "metrics": {
+              "tool_calls": 21,
+              "total_tokens": 607413
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e721720f-483e-4ce1-a01e-91c6a7caba43",
+            "metrics": {
+              "tool_calls": 15,
+              "total_tokens": 473812
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "b2c30a05-461b-43f1-8d80-eea576ab7814",
+            "metrics": {
+              "tool_calls": 24,
+              "total_tokens": 723199
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "ec4bb7d7-a9e9-47da-bb9f-e8b2c663832f",
+            "metrics": {
+              "tool_calls": 18,
+              "total_tokens": 477346
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 1,
+        "median_tokens": 40719,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "98d1ead7-1fc0-4a8e-9d05-9eedf870fbc2",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 27323
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "1475b95a-8125-4222-aa66-84636c10ea87",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 40730
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "abec5df3-7529-40b8-8f8b-c4d796f52bda",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 40722
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "1aeba03a-9cfe-4da6-a983-455d4881db95",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 40719
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e71b0c38-32fb-49a6-ab6c-c56b15f5295a",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 40715
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "runtime-cycle-check": {
+      "baseline": {
+        "median_tool_calls": 22,
+        "median_tokens": 1242140,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "69085e61-97ab-4a21-8ef1-8389920014eb",
+            "metrics": {
+              "tool_calls": 27,
+              "total_tokens": 1081970
+            },
+            "located_oracle": false
+          },
+          {
+            "session_id": "2f50ba64-3679-4380-937d-64b1e87fa5f5",
+            "metrics": {
+              "tool_calls": 29,
+              "total_tokens": 1666268
+            },
+            "located_oracle": false
+          },
+          {
+            "session_id": "a883517f-61eb-4c20-b847-effbbb9eb5e7",
+            "metrics": {
+              "tool_calls": 14,
+              "total_tokens": 518990
+            },
+            "located_oracle": false
+          },
+          {
+            "session_id": "94d2de25-e41c-45f9-b3a4-5ae15377458d",
+            "metrics": {
+              "tool_calls": 21,
+              "total_tokens": 1896425
+            },
+            "located_oracle": false
+          },
+          {
+            "session_id": "5cb6617b-ebf9-43c3-ba25-e4cb840b65f6",
+            "metrics": {
+              "tool_calls": 22,
+              "total_tokens": 1242140
+            },
+            "located_oracle": false
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 1,
+        "median_tokens": 26661,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "38222697-0c88-4d06-b47d-d096822128c3",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 26635
+            },
+            "located_oracle": false
+          },
+          {
+            "session_id": "d05d141c-2f0e-4140-b636-7edd0a63e792",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 40008
+            },
+            "located_oracle": false
+          },
+          {
+            "session_id": "71216f65-da5c-4c67-a48b-a4c9a2eaf9e5",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 26635
+            },
+            "located_oracle": false
+          },
+          {
+            "session_id": "10f0affd-49cd-4169-8576-0087faad8958",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 39980
+            },
+            "located_oracle": false
+          },
+          {
+            "session_id": "ea402fd4-ac6a-427c-96e6-2c98f7c44b07",
+            "metrics": {
+              "tool_calls": 1,
+              "total_tokens": 26661
+            },
+            "located_oracle": false
+          }
+        ]
+      }
+    }
+  }
+}

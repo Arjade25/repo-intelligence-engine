@@ -29,7 +29,13 @@ CREATE TABLE IF NOT EXISTS edges (
   from_file TEXT NOT NULL,                       -- the importing module
   to_file TEXT NOT NULL,                         -- the imported module (resolved)
   to_symbol_id INTEGER REFERENCES symbols(id),   -- nullable: the specific named import, if any
-  edge_type TEXT NOT NULL                         -- 'imports' for v1; extensible later
+  edge_type TEXT NOT NULL,                        -- 'imports' for v1; extensible later
+  -- 1 for `import type { X }`, `import { type X }`, `export type { X } from`, etc.
+  -- TypeScript ERASES these at compile time, so a type-only edge is a real source
+  -- dependency but NOT a runtime one. Cycle detection defaults to excluding them:
+  -- counting them reported a 227-file "circular dependency" on TypeORM that mostly
+  -- vanishes at runtime. Callers can opt back in.
+  is_type_only INTEGER NOT NULL DEFAULT 0
 );
 
 -- Where a symbol is used (from the LanguageService's findReferences — plan §4).

@@ -78,6 +78,39 @@
         "description": "src/entity-manager/EntityManager.ts line 40 (verified by grep 'export class EntityManager'). Its query-builder imports include QueryBuilder/SelectQueryBuilder machinery - any correct subset naming the file + at least one real query-builder import counts.",
         "files": ["src/entity-manager/EntityManager.ts", "src/query-builder/SelectQueryBuilder.ts"]
       }
+    },
+    {
+      "id": "entity-decorator-references",
+      "prompt": "How many places in this codebase's src/ directory reference the `Entity` function declared in src/decorator/entity/Entity.ts, and where?",
+      "oracle": {
+        "description": "`@Entity()` is declared 3x (overloads) at src/decorator/entity/Entity.ts. Semantic reference count is exactly 6, all internal to that same file (the overloads referencing each other). Its one genuine use elsewhere in src is src/index.ts:53, `export * from \"./decorator/entity/Entity\"` - a star re-export, which names no identifier and so is invisible to identifier-based reference search. A correct answer names Entity.ts as the declaration and index.ts as the public-API re-export; textual `Entity(` hits in JSDoc comments (NamingStrategyInterface.ts:23, EntityMetadata.ts:125, RelationType.ts:8) and in CLI scaffolding string templates (InitCommand.ts, EntityCreateCommand.ts) are NOT references. MEASURED 2026-09-10 - THIS TASK'S GREP-HOSTILE PREMISE DOES NOT HOLD, and it is retained deliberately as a negative result: the intended trap was that `grep -w Entity` returns 684 hits in 72 files (~114x the 6 real refs) because `Entity` is TypeORM's ubiquitous generic type-parameter name (Repository<Entity>, etc.). But neither arm fell for it - both immediately grepped `Entity\\(` with the paren, which is highly discriminating for a callable and collapsed 684 hits to ~7 files in one call. Assisted was WORSE than baseline (18 vs 13 tool calls, 442K vs 307K tokens) and both reached the same correct answer. Lesson: name-overcount is weak for functions/decorators, where `Name(` and `@Name` give grep a precise handle; it would only bite for symbols used in type position, indistinguishable from a generic type parameter.",
+        "files": ["src/decorator/entity/Entity.ts"]
+      }
+    },
+    {
+      "id": "mongofindmany-datasource-path",
+      "prompt": "Is there an import dependency path from MongoFindManyOptions to the DataSource class? If so, how many files does the shortest chain pass through, and what are they in order?",
+      "oracle": {
+        "description": "Grep-hostile: deep transitive path category. Yes - 7 hops / 8 files: MongoFindManyOptions.ts -> MongoFindOneOptions.ts -> FindOneOptions.ts -> FindOptionsWhere.ts -> FindOperator.ts -> InstanceChecker.ts -> MongoEntityManager.ts -> DataSource.ts. Verified hop-by-hop by grep on each file's `import type {X} from ...` line, and confirmed as the engine's actual dependencyPath() BFS output (ran directly against the built engine, not simulated). Like the existing postgres/sqb path tasks, dependencyPath does not distinguish type-only vs runtime edges - all 7 hops here are `import type`. Any correct chain of length 7 ending at src/data-source/DataSource.ts counts.",
+        "files": [
+          "src/find-options/mongodb/MongoFindManyOptions.ts",
+          "src/find-options/mongodb/MongoFindOneOptions.ts",
+          "src/find-options/FindOneOptions.ts",
+          "src/find-options/FindOptionsWhere.ts",
+          "src/find-options/FindOperator.ts",
+          "src/util/InstanceChecker.ts",
+          "src/entity-manager/MongoEntityManager.ts",
+          "src/data-source/DataSource.ts"
+        ]
+      }
+    },
+    {
+      "id": "runtime-cycle-check",
+      "prompt": "Does this codebase have any circular (mutually dependent) import cycles among its files, when counting only real runtime imports and excluding TypeScript `import type` statements used purely for type annotations? Answer yes or no.",
+      "oracle": {
+        "description": "Grep-hostile: cycle-detection category - not answerable by grep at all (there is no query that proves the absence of a cycle across 496 files / 2750 edges). Answer is No: findCircularDependencies(db) (default, runtime-only) returns zero strongly-connected components for TypeORM. Also illustrates why type-awareness matters: passing {includeTypeOnly:true} surfaces a spurious 227-file 'cycle' that is purely an `import type` artifact erased by TypeScript at runtime. Verified by calling findCircularDependencies() directly against the built engine, both without and with includeTypeOnly. KNOWN HARNESS CAVEAT: this task's correct answer is a negative with no files to name, so run.ts's located_oracle check (oracle.files.some(...)) will always read false here regardless of correctness - treat tool_calls/tokens as the real signal for this task, not located_oracle.",
+        "files": []
+      }
     }
   ]
 }

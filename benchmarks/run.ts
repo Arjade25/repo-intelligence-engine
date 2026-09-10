@@ -1,11 +1,13 @@
 #!/usr/bin/env tsx
 /**
  * Benchmark harness (plan §8/B). Runs each task under both arms, N times, from a
- * FRESH session per run, and reports MEDIAN file-reads / tool-calls per task.
+ * FRESH session per run, and reports MEDIAN tool-calls / total-tokens per task.
  *
  * Primary metrics are machine-counted by parsing Claude Code's session transcript
- * JSONL and tallying tool_use blocks by name. This was verified against real local
- * transcripts (plan §12 risk) before being relied on here:
+ * JSONL: tool_use blocks are tallied by name, and each assistant turn's
+ * message.usage (input/output/cache-creation/cache-read tokens) is summed. This
+ * was verified against real local transcripts (plan §12 risk) before being relied
+ * on here:
  *   - assistant turns are `{type:"assistant", isSidechain, message:{content:[...]}}`
  *   - tool calls are `{type:"tool_use", name, input}` blocks in that content array
  *   - built-in tools are named "Read"/"Grep"/"Glob"/...; MCP tools are named
@@ -61,8 +63,8 @@ interface BenchConfig {
 }
 
 interface Metrics {
-  file_reads: number; // count of Read tool_use blocks
   tool_calls: number; // Read + Grep + Glob + any MCP tool
+  total_tokens: number; // sum of input+output+cache tokens across the transcript's assistant turns
 }
 
 interface RunResult {
@@ -106,6 +108,43 @@ function buildProjectAndIndex(): void {
   db.close();
 }
 
+/**
+ * Resolve the `claude` CLI once, up front, so a bad setup fails immediately with
+ * an actionable message instead of on run 1 of N.
+ *
+ * PATH alone is not reliable here: an already-open terminal keeps the environment
+ * block it started with, so a shell (or a VS Code window) launched before `claude`
+ * was added to PATH cannot see it even though every new terminal can. That
+ * produces a spawn ENOENT, which spawnSync reports as `status: null` with
+ * undefined stderr - indistinguishable at a glance from a crash, and previously
+ * surfaced as the useless "claude exited null: undefined".
+ */
+function resolveClaudeBin(): string {
+  const override = process.env.RIE_CLAUDE_BIN;
+  if (override) {
+    if (!existsSync(override)) throw new Error(`RIE_CLAUDE_BIN is set but does not exist: ${override}`);
+    return override;
+  }
+
+  const onPath = spawnSync("claude", ["--version"], { encoding: "utf8", shell: false });
+  if (!onPath.error) return "claude";
+
+  // Standard install location, used when PATH is stale or was never updated.
+  const local = join(homedir(), ".local", "bin", process.platform === "win32" ? "claude.exe" : "claude");
+  if (existsSync(local)) {
+    console.log(`note: "claude" is not on this shell's PATH; using ${local}`);
+    return local;
+  }
+
+  throw new Error(
+    `Cannot find the "claude" CLI, which this harness spawns for every run.\n` +
+      `  - not on PATH (${(onPath.error as NodeJS.ErrnoException).code})\n` +
+      `  - not at ${local}\n` +
+      `Fix: open a NEW terminal (an already-open one keeps a stale environment), ` +
+      `or set RIE_CLAUDE_BIN to the executable's full path.`
+  );
+}
+
 /** Writes an MCP config file naming exactly our server, for --mcp-config. */
 function writeMcpConfig(): string {
   const cfg = {
@@ -135,14 +174,18 @@ function findTranscript(sessionId: string): string {
   throw new Error(`transcript not found for session ${sessionId} under ${projectsDir}`);
 }
 
-/** Tally tool_use blocks by name from assistant turns, skipping subagent sidechains. */
+/** Tally tool_use blocks and token usage from assistant turns, skipping subagent sidechains. */
 function parseMetrics(transcriptPath: string): Metrics {
   const lines = readFileSync(transcriptPath, "utf8").trim().split("\n");
-  let fileReads = 0;
   let toolCalls = 0;
+  let totalTokens = 0;
 
   for (const line of lines) {
-    let record: { type?: string; isSidechain?: boolean; message?: { content?: unknown } };
+    let record: {
+      type?: string;
+      isSidechain?: boolean;
+      message?: { content?: unknown; usage?: Record<string, number> };
+    };
     try {
       record = JSON.parse(line);
     } catch {
@@ -150,20 +193,28 @@ function parseMetrics(transcriptPath: string): Metrics {
     }
     if (record.type !== "assistant" || record.isSidechain) continue;
 
+    const usage = record.message?.usage;
+    if (usage) {
+      totalTokens +=
+        (usage.input_tokens ?? 0) +
+        (usage.output_tokens ?? 0) +
+        (usage.cache_creation_input_tokens ?? 0) +
+        (usage.cache_read_input_tokens ?? 0);
+    }
+
     const content = record.message?.content;
     if (!Array.isArray(content)) continue;
 
     for (const block of content as { type?: string; name?: string }[]) {
       if (block.type !== "tool_use") continue;
       toolCalls++;
-      if (block.name === "Read") fileReads++;
     }
   }
 
-  return { file_reads: fileReads, tool_calls: toolCalls };
+  return { tool_calls: toolCalls, total_tokens: totalTokens };
 }
 
-function runOnce(task: Task, arm: Arm, mcpConfigPath: string): RunResult {
+function runOnce(task: Task, arm: Arm, mcpConfigPath: string, claudeBin: string): RunResult {
   const sessionId = randomUUID();
 
   const args = [
@@ -189,9 +240,20 @@ function runOnce(task: Task, arm: Arm, mcpConfigPath: string): RunResult {
   // escaping (Node warns on this), which silently breaks multi-word prompts like
   // task.prompt into separate argv tokens - verified this actually happens on
   // Windows before switching. claude resolves fine as a direct executable.
-  const result = spawnSync("claude", args, { cwd: TARGET_REPO, encoding: "utf8", shell: false, stdio: "pipe" });
+  const result = spawnSync(claudeBin, args, { cwd: TARGET_REPO, encoding: "utf8", shell: false, stdio: "pipe" });
+  // A spawn failure and a nonzero exit both leave status !== 0, but only one of
+  // them has anything useful in stderr - report them differently.
+  if (result.error) {
+    throw new Error(
+      `could not spawn "${claudeBin}" for task=${task.id} arm=${arm}: ` +
+        `${(result.error as NodeJS.ErrnoException).code ?? result.error.message} (the process never started)`
+    );
+  }
   if (result.status !== 0) {
-    throw new Error(`claude exited ${result.status} for task=${task.id} arm=${arm}: ${result.stderr}`);
+    throw new Error(
+      `claude exited ${result.status}${result.signal ? ` (signal ${result.signal})` : ""} ` +
+        `for task=${task.id} arm=${arm}: ${result.stderr || "(no stderr)"}`
+    );
   }
 
   let finalText = "";
@@ -217,8 +279,8 @@ function median(xs: number[]): number {
 }
 
 interface ArmSummary {
-  median_file_reads: number;
   median_tool_calls: number;
+  median_tokens: number;
   n: number;
   runs: RunResult[];
 }
@@ -237,6 +299,7 @@ async function main() {
   const tasks = taskIds ? config.tasks.filter((t) => taskIds.includes(t.id)) : config.tasks;
   if (tasks.length === 0) throw new Error("no matching tasks (check --tasks=<id,...>)");
 
+  const claudeBin = resolveClaudeBin();
   if (!skipBuild) buildProjectAndIndex();
   const mcpConfigPath = arms.includes("assisted") ? writeMcpConfig() : "";
 
@@ -251,28 +314,28 @@ async function main() {
       const runs: RunResult[] = [];
       for (let i = 0; i < runsPerArm; i++) {
         process.stdout.write(`  ${task.id} / ${arm} / run ${i + 1}/${runsPerArm} ... `);
-        const r = runOnce(task, arm, mcpConfigPath);
+        const r = runOnce(task, arm, mcpConfigPath, claudeBin);
         console.log(
-          `file_reads=${r.metrics.file_reads} tool_calls=${r.metrics.tool_calls} located=${r.located_oracle}`
+          `tool_calls=${r.metrics.tool_calls} total_tokens=${r.metrics.total_tokens} located=${r.located_oracle}`
         );
         runs.push(r);
       }
       summary[task.id][arm] = {
-        median_file_reads: median(runs.map((r) => r.metrics.file_reads)),
         median_tool_calls: median(runs.map((r) => r.metrics.tool_calls)),
+        median_tokens: median(runs.map((r) => r.metrics.total_tokens)),
         n: runs.length,
         runs,
       };
     }
   }
 
-  console.log("\n| task | arm | median file-reads | median tool-calls | n |");
+  console.log("\n| task | arm | median tool-calls | median tokens | n |");
   console.log("|---|---|---|---|---|");
   for (const task of tasks) {
     for (const arm of arms) {
       const s = summary[task.id][arm];
       if (!s) continue;
-      console.log(`| ${task.id} | ${arm} | ${s.median_file_reads} | ${s.median_tool_calls} | ${s.n} |`);
+      console.log(`| ${task.id} | ${arm} | ${s.median_tool_calls} | ${s.median_tokens} | ${s.n} |`);
     }
   }
 
