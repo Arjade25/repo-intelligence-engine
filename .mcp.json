@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "rie": {
+      "command": "node",
+      "args": ["dist/mcp-server/index.js"],
+      "env": {
+        "RIE_DB": "benchmarks/nest-index.db",
+        "RIE_TSCONFIG": "benchmarks/target-repo-nest/tsconfig.rie.json"
+      }
+    }
+  }
+}

@@ -19,6 +19,27 @@ JSON is the record of truth.
 The README's other five rows come from the first full matrix; only `driver-impact`
 changed after the fix, and it was re-measured rather than re-derived.
 
+## nest (second target: 664 source files, added 2026-09-23)
+
+Run with `npx tsx benchmarks/run.ts --config=nest`. Task set: `benchmarks/tasks-nest.json`.
+
+| File | What it measures |
+|---|---|
+| `nest-2026-09-22T19-07-13-465Z.json` | Single smoke run (1 task, N=1) confirming the harness drove the new `--config=nest` target correctly before committing to the full matrix. |
+| `nest-2026-09-22T19-39-36-345Z.json` | **First full matrix** — 4 tasks × 2 arms × 5 runs. The BASELINE arm here is the record of truth. Its assisted arm is superseded: the nest index was rebuilt mid-run (the `emitDecoratorMetadata` fix), so those assisted numbers are not from a stable index. Baseline never reads the index and is unaffected. |
+| `nest-2026-09-22T19-46-46-266Z.json` | **Assisted arm re-run** against the final index, 4 tasks × 5 runs. These are the assisted numbers of record. |
+
+Pairing the baseline from the first file with the assisted from the third is deliberate
+and is the only valid combination; both were run against the same target commit and the
+same task prompts, and the baseline arm is independent of the index by construction.
+
+Correctness was checked by reading final answers out of the transcripts, not from
+`located_oracle`. On `runtime-cycle-check` all 5 assisted runs named 2 groups and all
+four distinctive member files; 4 of 5 baseline runs reached the same answer by hand, and
+one declined to answer at all. On `parseuuidpipe-exposure` all 10 runs were correct —
+that task's grep-hostile premise did not hold and it is retained as a negative result
+(see its oracle note in `tasks-nest.json`).
+
 ## nestjs-realworld (earlier, discarded target: 35 source files)
 
 Kept deliberately as the record of *why* the target repo changed. This app was too

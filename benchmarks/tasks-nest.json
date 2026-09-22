@@ -1,0 +1,85 @@
+{
+  "repo": {
+    "name": "nest",
+    "dir": "target-repo-nest",
+    "url": "https://github.com/nestjs/nest.git",
+    "commit": "40d07dc62ccb41686859b804f8523ae0e2dd1984",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "nestjs/nest monorepo, 664 non-spec packages/*.ts files, 1473 indexed symbols, 3442 file-level edges. Second target alongside TypeORM, chosen because its import style is the opposite of TypeORM's: nest writes plain `import { Foo }` even for pure types (218 `import type` statements vs 1698 plain `import {`), where TypeORM writes `import type`. tsconfig.rie.json is a self-contained config added for indexing; it MUST carry the `paths` aliases from nest's root tsconfig, because 230 non-spec files import across packages as `@nestjs/core/...` rather than by relative path - without `paths` every cross-package edge is silently lost. Oracles below were verified with independent grep ground-truth, not engine output alone."
+  },
+  "protocol": {
+    "runs_per_arm": 5,
+    "arms": ["baseline", "assisted"],
+    "note": "Fresh session per run (fresh --session-id, no --continue/--resume); baseline and assisted for a task never share a session (plan §8/B)."
+  },
+  "tasks": [
+    {
+      "id": "injector-impact",
+      "prompt": "What files would be affected if I changed the Injector class in packages/core/injector/injector.ts? List the files that import it.",
+      "oracle": {
+        "description": "Exactly 17 non-spec files import packages/core/injector/injector.ts. Verified by `grep -rlE \"from '[^']*/injector[.]js'\" --include='*.ts'` filtered with `grep -vE '[.]spec[.]ts$'`, which matched the engine's imported_by list 17/17 file-for-file. Grep-hostile in a way that is measured, not assumed: getting that command right took three attempts, through two silent failures. (1) A pattern without the leading slash also matches `testing-injector.js`, adding 2 false positives. (2) Filtering with `| grep -v spec` silently deletes every file under core/inspector/ (the substring 'spec' appears inside 'inspector'), removing serialized-graph-metadata.interface.ts as a false negative. Neither error announces itself - both produce a clean-looking list.",
+        "files": [
+          "packages/core/errors/exceptions/invalid-provider.exception.ts",
+          "packages/core/errors/exceptions/undefined-dependency.exception.ts",
+          "packages/core/errors/exceptions/unknown-dependencies.exception.ts",
+          "packages/core/errors/messages.ts",
+          "packages/core/injector/abstract-instance-resolver.ts",
+          "packages/core/injector/instance-loader.ts",
+          "packages/core/injector/internal-core-module/internal-core-module-factory.ts",
+          "packages/core/injector/module-ref.ts",
+          "packages/core/inspector/interfaces/serialized-graph-metadata.interface.ts",
+          "packages/core/internal.ts",
+          "packages/core/middleware/middleware-module.ts",
+          "packages/core/middleware/resolver.ts",
+          "packages/core/nest-application-context.ts",
+          "packages/core/nest-application.ts",
+          "packages/core/nest-factory.ts",
+          "packages/core/router/router-explorer.ts",
+          "packages/core/router/routes-resolver.ts"
+        ]
+      }
+    },
+    {
+      "id": "clientproxy-container-path",
+      "prompt": "Is there an import dependency path from ClientProxyFactory to the NestContainer class? If so, what files does it pass through, in order?",
+      "oracle": {
+        "description": "Grep-hostile: deep transitive path, and it crosses a package boundary through an alias. Yes - 5 hops / 6 files: packages/microservices/client/client-proxy-factory.ts:16 -> client/client-grpc.ts:4 -> errors/invalid-grpc-package.exception.ts:1 -> packages/core/internal.ts (imported as '@nestjs/core/internal', NOT a relative path) -> core/internal.ts:18 re-exports './scanner.js' -> core/scanner.ts:16 -> core/injector/container.ts. Every hop verified individually by grep on the importing file's own import line; matches the engine's dependencyPath() output exactly. The alias hop is what makes this hard for grep: nothing in invalid-grpc-package.exception.ts mentions a path, only the package name. Any correct chain of that length ending at packages/core/injector/container.ts counts.",
+        "files": [
+          "packages/microservices/client/client-proxy-factory.ts",
+          "packages/microservices/client/client-grpc.ts",
+          "packages/microservices/errors/invalid-grpc-package.exception.ts",
+          "packages/core/internal.ts",
+          "packages/core/scanner.ts",
+          "packages/core/injector/container.ts"
+        ]
+      }
+    },
+    {
+      "id": "parseuuidpipe-exposure",
+      "prompt": "The class ParseUUIDPipe is declared in packages/common/pipes/parse-uuid.pipe.ts. Is it part of this library's public API, and if so how does it reach consumers of the @nestjs/common package?",
+      "oracle": {
+        "description": "Grep-hostile: star-re-export invisibility. Yes, it is public, via two chained `export * from` hops - packages/common/pipes/index.ts:9 (`export * from './parse-uuid.pipe.js'`) and packages/common/index.ts:79 (`export * from './pipes/index.js'`). An identifier search is actively misleading here: grepping for ParseUUIDPipe across *.ts (excluding specs) returns 4 hits and ALL FOUR are inside the declaring file - the class declaration at line 48, one static self-reference at line 95, and two hits that are actually a different symbol, ParseUUIDPipeOptions (lines 17 and 60). A star re-export names no identifier, so nothing in the grep output suggests the symbol is exported at all; the naive reading is that it is internal or dead. The engine surfaces this as re_exported_by rather than as references. A correct answer says it IS public and names packages/common/pipes/index.ts (and ideally packages/common/index.ts) as the star re-export path. MEASURED 2026-09-23 - THIS TASK'S GREP-HOSTILE PREMISE DOES NOT HOLD, and it is retained deliberately as a negative result (same category as TypeORM's entity-decorator-references). All 10 runs, both arms, answered correctly, and the baseline was marginally CHEAPER (median 4 calls / 40K tokens vs assisted 3 calls / 71K). The reason is a flaw in the PROMPT, not in the premise: naming the declaring file up front hands the agent the answer's starting point - it reads parse-uuid.pipe.ts, sees the file sits in pipes/, and greps the two barrel index.ts files in one or two more calls. Star-re-export invisibility only actually bites when the question starts from the SYMBOL with no file hint, because then identifier search returns 4 self-contained hits and there is nothing to suggest a barrel exists. A sharper rephrasing to measure next: 'Is ParseUUIDPipe used anywhere outside the file that declares it?' - which invites the wrong answer 'no'. Note the engine reports the declaration at line 47, the @Injectable() decorator line, because the decorator is part of the declaration node; grep reports 48. Both are correct.",
+        "files": [
+          "packages/common/pipes/parse-uuid.pipe.ts",
+          "packages/common/pipes/index.ts",
+          "packages/common/index.ts"
+        ]
+      }
+    },
+    {
+      "id": "runtime-cycle-check",
+      "prompt": "Does this codebase have any circular (mutually dependent) import cycles among its files, when counting only real runtime imports and excluding imports that TypeScript erases because they are only used in type positions? If so, how many groups are there and which files are in them?",
+      "oracle": {
+        "description": "Grep-hostile: cycle detection is not answerable by grep at all. Answer is YES, exactly 2 mutually-entangled groups, 4 files each: (A) common/services/logger.service.ts, services/utils/index.ts, services/utils/is-log-level.util.ts, services/utils/filter-log-levels.util.ts; (B) common/index.ts, common/pipes/index.ts, pipes/parse-enum.pipe.ts, pipes/parse-float.pipe.ts. GROUND TRUTH IS EMIT-VERIFIED, not engine output: built a real ts.Program from tsconfig.rie.json with noEmit:false + module:CommonJS, emitted, read the surviving require() calls out of the emitted JS and ran Tarjan on those - an import TypeScript elides cannot cause a runtime cycle, one that becomes a require() can. That run covered 664 files with 0 diagnostics and 0 unresolved internal specifiers and found exactly these 2 SCCs; the engine matches member-for-member. Two traps were found building that oracle and are worth knowing before re-deriving it: (1) a dynamic import() downlevels to a Promise.resolve().then(() => require(X)) wrapper, so counting raw require( matches turns every optional peer-dep load into a hard edge and invents a 22-file cross-package SCC that does not exist as an initialization cycle; (2) deriving the emit source root by guessing packages/ vs src/ silently produced an EMPTY graph for TypeORM that still reported a tidy '0 cycles'. Before the is_type_only fix (value-position analysis, src/indexer/erasure.ts) the engine reported 7 SCCs here, sizes 69/54/27/9/6/2/2. HARNESS CAVEAT: same as TypeORM's cycle task - located_oracle keys on basenames like index.ts that appear constantly, so treat tool_calls/tokens as the real signal here, not located_oracle.",
+        "files": [
+          "packages/common/services/logger.service.ts",
+          "packages/common/services/utils/index.ts",
+          "packages/common/services/utils/is-log-level.util.ts",
+          "packages/common/services/utils/filter-log-levels.util.ts",
+          "packages/common/pipes/parse-enum.pipe.ts",
+          "packages/common/pipes/parse-float.pipe.ts"
+        ]
+      }
+    }
+  ]
+}

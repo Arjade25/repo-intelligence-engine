@@ -1,6 +1,7 @@
 {
   "repo": {
     "name": "typeorm",
+    "dir": "target-repo",
     "url": "https://github.com/typeorm/typeorm.git",
     "commit": "04ff4daedcf60fa4ffd0d5d33bbafaac1a9bbc96",
     "tsconfig": "tsconfig.rie.json",

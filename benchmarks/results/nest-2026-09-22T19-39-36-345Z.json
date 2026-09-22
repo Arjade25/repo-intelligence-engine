@@ -1,0 +1,401 @@
+{
+  "repo": {
+    "name": "nest",
+    "dir": "target-repo-nest",
+    "url": "https://github.com/nestjs/nest.git",
+    "commit": "40d07dc62ccb41686859b804f8523ae0e2dd1984",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "nestjs/nest monorepo, 664 non-spec packages/*.ts files, 1473 indexed symbols, 3442 file-level edges. Second target alongside TypeORM, chosen because its import style is the opposite of TypeORM's: nest writes plain `import { Foo }` even for pure types (218 `import type` statements vs 1698 plain `import {`), where TypeORM writes `import type`. tsconfig.rie.json is a self-contained config added for indexing; it MUST carry the `paths` aliases from nest's root tsconfig, because 230 non-spec files import across packages as `@nestjs/core/...` rather than by relative path - without `paths` every cross-package edge is silently lost. Oracles below were verified with independent grep ground-truth, not engine output alone."
+  },
+  "arms": [
+    "baseline",
+    "assisted"
+  ],
+  "runsPerArm": 5,
+  "summary": {
+    "injector-impact": {
+      "baseline": {
+        "median_tool_calls": 5,
+        "median_tokens": 82321,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "807644a8-a599-4230-87bd-56db49ac48ee",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 82321
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "d8fb35d8-c64d-4138-9668-19b6d4229932",
+            "metrics": {
+              "tool_calls": 7,
+              "total_tokens": 100608
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "d3a6e8c8-b74d-4cd0-8862-2fec345d2b6b",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 80646
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2ca0f7d4-7855-4b51-8d47-f6c61eb57bc9",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 68318
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "60eab8d8-040f-4184-b6e9-99007565e02f",
+            "metrics": {
+              "tool_calls": 7,
+              "total_tokens": 132036
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 6,
+        "median_tokens": 134950,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "df4c88c7-2e41-4a8b-b22d-f810462257b5",
+            "metrics": {
+              "tool_calls": 4,
+              "total_tokens": 93940
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "9a5a1ca7-3b24-47b7-88dc-cb214aaa50a2",
+            "metrics": {
+              "tool_calls": 10,
+              "total_tokens": 246883
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "003816b0-795a-4267-8762-fa6344ffe3ba",
+            "metrics": {
+              "tool_calls": 7,
+              "total_tokens": 158191
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "bf8c710b-6300-4d69-8852-fecff63c058d",
+            "metrics": {
+              "tool_calls": 6,
+              "total_tokens": 134950
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "f40b66ee-fe77-4f0f-93d8-96566f7354ba",
+            "metrics": {
+              "tool_calls": 3,
+              "total_tokens": 79494
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "clientproxy-container-path": {
+      "baseline": {
+        "median_tool_calls": 10,
+        "median_tokens": 156786,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "004572ad-2828-4e86-83be-646406df89ba",
+            "metrics": {
+              "tool_calls": 11,
+              "total_tokens": 160819
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "b098ba02-678d-4d7b-8154-044570b28f8b",
+            "metrics": {
+              "tool_calls": 7,
+              "total_tokens": 133256
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "29afd11e-ac50-462c-beb7-17fecef9f5db",
+            "metrics": {
+              "tool_calls": 10,
+              "total_tokens": 162962
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "489340e2-928b-4fce-b6b5-2eb5e7aabc67",
+            "metrics": {
+              "tool_calls": 10,
+              "total_tokens": 138653
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "dc78acee-ce53-4e78-ba8f-58c089e39764",
+            "metrics": {
+              "tool_calls": 11,
+              "total_tokens": 156786
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 5,
+        "median_tokens": 67145,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "1c65325d-8a21-476b-aafc-ab9dead5bdbc",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 67145
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "5210db87-8c2c-4011-a874-4a46ad431a87",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 63976
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "b6abc574-b935-42db-a450-8d1186d2f477",
+            "metrics": {
+              "tool_calls": 4,
+              "total_tokens": 54307
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "d4758a1b-d00a-4040-9320-2380e7df0d3e",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 67560
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "a9f26f55-3ffd-4101-a792-0fb4c68194ef",
+            "metrics": {
+              "tool_calls": 7,
+              "total_tokens": 89598
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "parseuuidpipe-exposure": {
+      "baseline": {
+        "median_tool_calls": 4,
+        "median_tokens": 40497,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "2c2d337f-cfa6-4329-bd36-bcd00c6756e2",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 48872
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "963868f6-fb9f-443f-8e06-62d243bf0ebc",
+            "metrics": {
+              "tool_calls": 3,
+              "total_tokens": 32159
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "4336cdf5-03df-4903-9964-f494e3472d23",
+            "metrics": {
+              "tool_calls": 4,
+              "total_tokens": 40497
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "a557c526-4711-4d9b-8ea3-08d37149097b",
+            "metrics": {
+              "tool_calls": 3,
+              "total_tokens": 39516
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "9419c7d9-0607-4d51-a3cc-a575921020a9",
+            "metrics": {
+              "tool_calls": 6,
+              "total_tokens": 64559
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 3,
+        "median_tokens": 70530,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "39c3bfdc-4e2e-4567-8556-2b4b37c5813f",
+            "metrics": {
+              "tool_calls": 4,
+              "total_tokens": 54221
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "0a7f0b7a-71cf-41cd-b097-30bff580c989",
+            "metrics": {
+              "tool_calls": 6,
+              "total_tokens": 74023
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "52222ba9-9aaa-4619-b849-e9ae451f0757",
+            "metrics": {
+              "tool_calls": 3,
+              "total_tokens": 56010
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "9e644e5b-5546-4b3b-a84d-b46ffd8a44bd",
+            "metrics": {
+              "tool_calls": 3,
+              "total_tokens": 77816
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "e1e730d2-3306-4545-98bc-fede15560a98",
+            "metrics": {
+              "tool_calls": 3,
+              "total_tokens": 70530
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    },
+    "runtime-cycle-check": {
+      "baseline": {
+        "median_tool_calls": 44,
+        "median_tokens": 6317943,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "ead53aad-59d8-4b55-82a7-509f573cbedd",
+            "metrics": {
+              "tool_calls": 54,
+              "total_tokens": 7170274
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "b6232d3c-005e-45e3-802d-6b8c7111693e",
+            "metrics": {
+              "tool_calls": 43,
+              "total_tokens": 6109871
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "08ad261d-4653-44b9-8bf3-0b93f2e54936",
+            "metrics": {
+              "tool_calls": 4,
+              "total_tokens": 65940
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "d87cec7d-f9f2-4dcc-93c6-6de27b13a653",
+            "metrics": {
+              "tool_calls": 45,
+              "total_tokens": 7298788
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "d45f8162-0740-4b5d-97a7-84d6045a6469",
+            "metrics": {
+              "tool_calls": 44,
+              "total_tokens": 6317943
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 4,
+        "median_tokens": 67373,
+        "n": 5,
+        "runs": [
+          {
+            "session_id": "99ce7a53-51bf-4159-9cd6-b31f58afec79",
+            "metrics": {
+              "tool_calls": 4,
+              "total_tokens": 68474
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "7b4b2009-7145-44db-bff8-950882c69b71",
+            "metrics": {
+              "tool_calls": 3,
+              "total_tokens": 58452
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "cf6e8a66-50f3-403a-ab63-9eea060ace49",
+            "metrics": {
+              "tool_calls": 4,
+              "total_tokens": 67373
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "7d242394-0e0f-4881-a2cd-6ec4f485b5f1",
+            "metrics": {
+              "tool_calls": 3,
+              "total_tokens": 59940
+            },
+            "located_oracle": true
+          },
+          {
+            "session_id": "2b3039c6-d48f-45bd-8090-b1ce3f209df6",
+            "metrics": {
+              "tool_calls": 5,
+              "total_tokens": 76309
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    }
+  }
+}

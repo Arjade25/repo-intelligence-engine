@@ -9,5 +9,6 @@ dist/
 .DS_Store
 # benchmarks/results/ is deliberately NOT ignored: the README cites it as the raw
 # evidence behind the before/after table, so it has to ship with the repo.
-# The cloned target repo does not — it is reproducible from tasks.json (url+commit).
+# The cloned target repos do not — each is reproducible from its tasks file (url+commit).
 benchmarks/target-repo/
+benchmarks/target-repo-nest/

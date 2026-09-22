@@ -102,6 +102,36 @@ describe("indexRepository (fixtures/sample-repo)", () => {
  * real source dependencies but not runtime ones — the distinction cycle detection
  * relies on. Uses its own fixture so sample-repo's hand-counted totals stay fixed.
  */
+/**
+ * `emitDecoratorMetadata` is the one case where a type-position-only import still
+ * survives: a decorated declaration's parameter/property types are re-emitted as
+ * `design:paramtypes`/`design:type`. Its own fixture, because it needs
+ * experimentalDecorators + emitDecoratorMetadata turned on.
+ */
+describe("indexRepository: emitDecoratorMetadata (fixtures/decorator-metadata-repo)", () => {
+  const db = openDb(":memory:");
+  indexRepository(db, join(__dirname, "../../fixtures/decorator-metadata-repo/tsconfig.json"));
+
+  function edgesBetween(from: string, to: string): EdgeRow[] {
+    return db
+      .prepare(`SELECT * FROM edges WHERE from_file LIKE ? AND to_file LIKE ?`)
+      .all(`%/${from}`, `%/${to}`) as EdgeRow[];
+  }
+
+  it("keeps a constructor-parameter type when the class is decorated", () => {
+    const edges = edgesBetween("decorated.ts", "deps.ts");
+    expect(edges).toHaveLength(1);
+    expect(edges[0].is_type_only).toBe(0);
+  });
+
+  it("erases the identical usage when the class is NOT decorated", () => {
+    // Same import, same type-only usage - the decorator is the whole difference.
+    const edges = edgesBetween("undecorated.ts", "deps.ts");
+    expect(edges).toHaveLength(1);
+    expect(edges[0].is_type_only).toBe(1);
+  });
+});
+
 describe("indexRepository: is_type_only (fixtures/type-only-repo)", () => {
   const db = openDb(":memory:");
   indexRepository(db, join(__dirname, "../../fixtures/type-only-repo/tsconfig.json"));
@@ -143,5 +173,57 @@ describe("indexRepository: is_type_only (fixtures/type-only-repo)", () => {
     const edges = edgesBetween("mixed.ts", "b.ts");
     expect(edges).toHaveLength(1);
     expect(edges[0].is_type_only).toBe(1);
+  });
+
+  // The `type` keyword is a hint, not the rule: TypeScript erases any import whose
+  // bindings are only ever used in type position. Detecting only the keyword made
+  // nestjs/nest report 7 runtime cycles where an emit-verified count found 2.
+  describe("erasure without the `type` keyword", () => {
+    it("flags a plain `import { B }` used only as a type", () => {
+      const edges = edgesBetween("erased.ts", "b.ts");
+      expect(edges).toHaveLength(1);
+      expect(edges[0].is_type_only).toBe(1);
+    });
+
+    it("splits a keyword-free statement by how each name is actually used", () => {
+      // `import { Widget, WIDGET_TOKEN }` - Widget only annotates, WIDGET_TOKEN is
+      // assigned to an exported const, so exactly one of the two edges survives.
+      const edges = edgesBetween("erased.ts", "values.ts");
+      const named = edges.filter((e) => e.to_symbol_id !== null);
+      expect(named.map((e) => e.is_type_only).sort()).toEqual([0, 1]);
+
+      const widget = db
+        .prepare("SELECT id FROM symbols WHERE name = 'Widget' AND kind = 'class'")
+        .get() as { id: number };
+      expect(named.find((e) => e.to_symbol_id === widget.id)!.is_type_only).toBe(1);
+    });
+
+    it("flags a namespace import referenced only through a type (`ns.Widget`)", () => {
+      // Namespace imports carry no symbol, so they land as the NULL-symbol edge.
+      const edges = edgesBetween("erased.ts", "values.ts").filter((e) => e.to_symbol_id === null);
+      expect(edges).toHaveLength(1);
+      expect(edges[0].is_type_only).toBe(1);
+    });
+
+    it("keeps `extends` on a class but erases `implements`", () => {
+      const edges = edgesBetween("heritage.ts", "values.ts");
+      const byName = (name: string) => {
+        const sym = db.prepare("SELECT id FROM symbols WHERE name = ?").get(name) as { id: number };
+        return edges.find((e) => e.to_symbol_id === sym.id)!;
+      };
+      // Base becomes the prototype at runtime; Contract is an interface.
+      expect(byName("Base").is_type_only).toBe(0);
+      expect(byName("Contract").is_type_only).toBe(1);
+    });
+
+    it("decides a keyword-free re-export by the re-exported symbol's meaning", () => {
+      const edges = edgesBetween("reexport.ts", "values.ts");
+      const byName = (name: string) => {
+        const sym = db.prepare("SELECT id FROM symbols WHERE name = ?").get(name) as { id: number };
+        return edges.find((e) => e.to_symbol_id === sym.id)!;
+      };
+      expect(byName("Base").is_type_only).toBe(0);
+      expect(byName("Contract").is_type_only).toBe(1);
+    });
   });
 });

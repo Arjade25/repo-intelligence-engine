@@ -2,6 +2,7 @@ import ts from "typescript";
 import type Database from "better-sqlite3";
 import { dirname, resolve } from "node:path";
 import { clearIndex } from "../storage/db.js";
+import { analyzeErasure, reExportHasValueMeaning } from "./erasure.js";
 
 /**
  * Batch indexer (plan §4, mode 1): a one-shot ts.Program walked once to populate
@@ -32,7 +33,7 @@ export function indexRepository(db: Database.Database, tsconfigPath: string): vo
 
   // Pass 2: edges, resolved against the now-complete symbols table.
   for (const sourceFile of sourceFiles) {
-    extractEdges(db, sourceFile, program, options, host);
+    extractEdges(db, sourceFile, program, options, host, checker);
   }
 }
 
@@ -138,7 +139,8 @@ function extractEdges(
   sourceFile: ts.SourceFile,
   program: ts.Program,
   options: ts.CompilerOptions,
-  host: ts.CompilerHost
+  host: ts.CompilerHost,
+  checker: ts.TypeChecker
 ): void {
   const insertEdge = db.prepare(
     `INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type, is_type_only)
@@ -147,6 +149,8 @@ function extractEdges(
   const findSymbol = db.prepare(`SELECT id FROM symbols WHERE name = ? AND file_path = ?`);
 
   const fromFile = normalizePath(sourceFile.fileName);
+  // One traversal per file, shared by every import statement in it.
+  const erasure = analyzeErasure(sourceFile, checker, options);
 
   const resolveSpecifier = (moduleSpecifier: ts.Expression): string | undefined => {
     if (!ts.isStringLiteral(moduleSpecifier)) return undefined;
@@ -198,12 +202,26 @@ function extractEdges(
       const clause = stmt.importClause;
       if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
         for (const el of clause.namedBindings.elements) {
-          names.push({ name: (el.propertyName ?? el.name).text, isTypeOnly: el.isTypeOnly });
+          names.push({
+            name: (el.propertyName ?? el.name).text,
+            // Erased if the source said so, or if nothing in this file ever uses
+            // the local binding as a value.
+            isTypeOnly: el.isTypeOnly || !erasure.isUsedAsValue(el.name),
+          });
         }
       }
       // default imports and namespace imports (`import * as ns`) fall through
-      // with no names -> a single NULL edge, same as a side-effect import.
-      writeEdges(toFile, names, clause?.isTypeOnly === true);
+      // with no names -> a single NULL edge, same as a side-effect import. A
+      // side-effect import (no clause at all) is always retained: running the
+      // module IS the point.
+      const binding =
+        clause?.name ??
+        (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)
+          ? clause.namedBindings.name
+          : undefined);
+      const clauseErased =
+        clause?.isTypeOnly === true || (binding !== undefined && !erasure.isUsedAsValue(binding));
+      writeEdges(toFile, names, clauseErased);
     } else if (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier) {
       const toFile = resolveSpecifier(stmt.moduleSpecifier);
       if (!toFile) continue;
@@ -211,7 +229,13 @@ function extractEdges(
       const names: ImportedName[] = [];
       if (stmt.exportClause && ts.isNamedExports(stmt.exportClause)) {
         for (const el of stmt.exportClause.elements) {
-          names.push({ name: (el.propertyName ?? el.name).text, isTypeOnly: el.isTypeOnly });
+          names.push({
+            name: (el.propertyName ?? el.name).text,
+            // A re-export binds no local name, so there is no local use to
+            // inspect - what survives is decided by the re-exported symbol's
+            // own meaning in the module it came from.
+            isTypeOnly: el.isTypeOnly || !reExportHasValueMeaning(el, checker),
+          });
         }
       }
       // `export * from './x'` (no clause) and `export * as ns from './x'` (a

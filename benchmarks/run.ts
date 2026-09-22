@@ -57,7 +57,7 @@ interface Task {
 }
 
 interface BenchConfig {
-  repo: { name: string; url: string; commit: string; tsconfig: string; note: string };
+  repo: { name: string; dir?: string; url: string; commit: string; tsconfig: string; note: string };
   protocol: { runs_per_arm: number; arms: Arm[]; note: string };
   tasks: Task[];
 }
@@ -73,11 +73,32 @@ interface RunResult {
   located_oracle: boolean; // best-effort: does the final answer mention an oracle file's basename?
 }
 
-const config: BenchConfig = JSON.parse(readFileSync(join(__dirname, "tasks.json"), "utf8"));
+/**
+ * Which task set to run. `--config=` takes a path (or a bare name: `nest` ->
+ * benchmarks/tasks-nest.json), defaulting to the original TypeORM set.
+ *
+ * Read straight from argv rather than through parseArgs() because the target repo
+ * and index paths below are module-level constants derived from it.
+ */
+function resolveConfigPath(argv: string[]): string {
+  const raw = argv.find((a) => a.startsWith("--config="))?.slice("--config=".length);
+  if (!raw) return join(__dirname, "tasks.json");
+  for (const candidate of [raw, join(__dirname, raw), join(__dirname, `tasks-${raw}.json`)]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error(`--config=${raw}: no such task file (tried it as a path, and as benchmarks/tasks-${raw}.json)`);
+}
 
-const TARGET_REPO = join(__dirname, "target-repo");
+const CONFIG_PATH = resolveConfigPath(process.argv.slice(2));
+const config: BenchConfig = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+
+// Each target gets its own clone directory and its own index, so switching task
+// sets never silently reuses the previous target's index. `dir` defaults to
+// "target-repo" to keep the original TypeORM config working unchanged.
+const TARGET_DIR = config.repo.dir ?? "target-repo";
+const TARGET_REPO = join(__dirname, TARGET_DIR);
 const TARGET_TSCONFIG = join(TARGET_REPO, config.repo.tsconfig);
-const INDEX_DB = join(__dirname, "target-repo-index.db");
+const INDEX_DB = join(__dirname, `${TARGET_DIR}-index.db`);
 const MCP_SERVER_ENTRY = join(PROJECT_ROOT, "dist", "mcp-server", "index.js");
 const MCP_SERVER_NAME = "rie";
 
@@ -98,7 +119,7 @@ function buildProjectAndIndex(): void {
   if (!existsSync(TARGET_TSCONFIG)) {
     throw new Error(
       `target repo not found at ${TARGET_REPO} (expected tsconfig at ${TARGET_TSCONFIG}). ` +
-        `Clone ${config.repo.url} (commit ${config.repo.commit}) into benchmarks/target-repo first.`
+        `Clone ${config.repo.url} (commit ${config.repo.commit}) into benchmarks/${TARGET_DIR} first.`
     );
   }
 
@@ -303,7 +324,7 @@ async function main() {
   if (!skipBuild) buildProjectAndIndex();
   const mcpConfigPath = arms.includes("assisted") ? writeMcpConfig() : "";
 
-  console.log(`\nBenchmark: ${config.repo.name} @ ${config.repo.commit.slice(0, 8)}`);
+  console.log(`\nBenchmark: ${config.repo.name} @ ${config.repo.commit.slice(0, 8)}  (${CONFIG_PATH})`);
   console.log(`tasks=${tasks.map((t) => t.id).join(",")} arms=${arms.join(",")} runsPerArm=${runsPerArm}\n`);
 
   const summary: Record<string, Partial<Record<Arm, ArmSummary>>> = {};
@@ -341,7 +362,8 @@ async function main() {
 
   const resultsDir = join(__dirname, "results");
   mkdirSync(resultsDir, { recursive: true });
-  const outPath = join(resultsDir, `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const outPath = join(resultsDir, `${config.repo.name}-${stamp}.json`);
   writeFileSync(outPath, JSON.stringify({ repo: config.repo, arms, runsPerArm, summary }, null, 2));
   console.log(`\nResults written to ${outPath}`);
 }

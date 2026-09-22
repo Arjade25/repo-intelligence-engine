@@ -110,9 +110,13 @@ The cycle task is the sharpest case, because the *quality* of the answer differs
 
 `find_circular_dependencies()` reports strongly connected components of the import graph (Tarjan's algorithm), each with one concrete example cycle. It reports components rather than enumerating every simple cycle, because a tangled component can contain exponentially many of those — the component is the actionable unit, the example makes it concrete.
 
-**Type-only imports are excluded by default.** `import type { X }` is erased by the TypeScript compiler, so it is a real *source* dependency but cannot produce a *runtime* cycle. The indexer records this per edge (`edges.is_type_only`), at both statement and specifier granularity — `import { type A, b }` is one statement carrying one erased edge and one real one.
+**Erased imports are excluded by default.** An import that TypeScript erases is a real *source* dependency but cannot produce a *runtime* cycle. The indexer records this per edge (`edges.is_type_only`), at both statement and specifier granularity — `import { type A, b }` is one statement carrying one erased edge and one real one.
 
-That distinction turns out to dominate the result. On TypeORM, **56.8% of all import edges (1,562 of 2,750) are type-only**, and the two views disagree completely:
+Crucially, the test is **whether the compiler erases the import, not whether the source wrote the `type` keyword**. TypeScript erases any import whose bindings are only ever used in type position, keyword or not, so the indexer walks each file and asks the emitter's question: is this binding ever referenced from a value position? (`src/indexer/erasure.ts`.) The keyword remains authoritative when present; the analysis catches what it misses. Three cases decide most of it: `typeof X` is a type query and erases; `class C extends B` is the one heritage position that survives, because `B` becomes the prototype, while `implements` and an interface's own `extends` do not; and `export { A } from './x'` binds no local name, so it is decided by whether `A` has a value meaning in its source module.
+
+This is not a hypothetical refinement — it is the difference between the right answer and the wrong one on real codebases, and the section below on nest measures exactly how much.
+
+That distinction turns out to dominate the result. On TypeORM, **56.9% of all import edges (1,565 of 2,750) are erased**, and the two views disagree completely:
 
 | Query | Result |
 |---|---|
@@ -122,6 +126,37 @@ That distinction turns out to dominate the result. On TypeORM, **56.8% of all im
 TypeORM has **no runtime circular dependencies at all**. The 227-file component that a type-blind graph reports is an artifact of counting erased edges: its seed pair, `RelationLoader.ts` ↔ `DataSource.ts`, is a value import one way and `import type` the other, so the loop never closes at runtime. Using `import type` to break cycles is a deliberate practice in mature TypeScript libraries, and an analyzer that ignores it reports the opposite of the truth.
 
 An earlier build of this tool did exactly that — it reported the 227-file group as a circular dependency. The finding was caught by checking the flagged imports by hand rather than trusting the output.
+
+### Why keyword detection was not enough
+
+TypeORM passes this test for a reason that does not generalize: its authors write `import type`. nestjs/nest, added as a second benchmark target, writes plain `import { Foo }` even for pure types — 218 `import type` statements against 1,698 plain ones. Against a keyword-only check, nest's erased edges all counted as runtime edges:
+
+| | nest |
+|---|---|
+| keyword detection only | 7 cycle groups — 69, 54, 27, 9, 6, 2, 2 files |
+| value-position analysis | **2 groups — 4 and 4 files** |
+| emit-verified ground truth | **2 groups — 4 and 4 files**, same members |
+
+Ground truth here is not the engine's own output. It was measured by building a real `ts.Program`, emitting with `module: CommonJS`, reading the surviving `require()` calls out of the emitted JavaScript and running Tarjan on those — an import the compiler elides cannot cause a runtime cycle, one that becomes a `require()` can. That run covered 664 files with zero diagnostics and zero unresolved internal specifiers. TypeORM re-measured against the same oracle is unchanged at 0.
+
+Two traps surfaced while building that oracle, both of which produced a clean-looking wrong number:
+
+- A dynamic `import()` downlevels to `Promise.resolve().then(() => require(X))`. Counting raw `require(` matches turns every optional peer-dependency load into a hard edge, inventing a 22-file cross-package component that is not an initialization cycle at all. Lazy asynchronous loads are correctly absent from a static import graph.
+- Deriving the oracle's source root by guessing `packages/` versus `src/` produced an *empty* graph for TypeORM — which still reported a tidy "0 cycles" and agreed with the engine for entirely the wrong reason. TypeORM has its own `packages/` directory. The root is now derived from the tsconfig's own file list, and the script prints its file count so an empty graph cannot masquerade as agreement.
+
+### Checking it edge by edge
+
+Component counts are a coarse check — two graphs can agree on cycles and still disagree about hundreds of edges. So every one of nest's 2,182 distinct file-pairs was compared against the emitted output directly, asking of each: does the compiled JavaScript actually `require` this?
+
+| | pairs |
+|---|---|
+| agree with emitted output | 2,153 |
+| erased by the compiler, reported as runtime | 29 |
+| real runtime edge, reported as erased | **0** |
+
+The two directions are not equally serious. Reporting a runtime edge that the compiler erases can only ever *over*-report a cycle; missing a real one can *hide* one. The first pass of this analysis had 3 of the dangerous kind, all `@Injectable()` classes taking a constructor dependency: `emitDecoratorMetadata` re-emits a decorated declaration's parameter and property types as `design:paramtypes`/`design:type`, so those imports survive despite appearing only in type position. The indexer now treats metadata positions as value uses when the option is on, which takes that column to zero.
+
+**Known limit**, in the safe direction: a `const enum` is inlined by the compiler, so its import disappears from the emitted JavaScript even though the source genuinely uses it as a value — that is most of the remaining 29. Whether it disappears depends on `preserveConstEnums` and `isolatedModules`, so the indexer stays conservative and counts the edge.
 
 ## Star re-exports
 

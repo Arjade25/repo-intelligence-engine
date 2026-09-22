@@ -1,0 +1,49 @@
+{
+  "repo": {
+    "name": "nest",
+    "dir": "target-repo-nest",
+    "url": "https://github.com/nestjs/nest.git",
+    "commit": "40d07dc62ccb41686859b804f8523ae0e2dd1984",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "nestjs/nest monorepo, 664 non-spec packages/*.ts files, 1473 indexed symbols, 3442 file-level edges. Second target alongside TypeORM, chosen because its import style is the opposite of TypeORM's: nest writes plain `import { Foo }` even for pure types (218 `import type` statements vs 1698 plain `import {`), where TypeORM writes `import type`. tsconfig.rie.json is a self-contained config added for indexing; it MUST carry the `paths` aliases from nest's root tsconfig, because 230 non-spec files import across packages as `@nestjs/core/...` rather than by relative path - without `paths` every cross-package edge is silently lost. Oracles below were verified with independent grep ground-truth, not engine output alone."
+  },
+  "arms": [
+    "baseline",
+    "assisted"
+  ],
+  "runsPerArm": 1,
+  "summary": {
+    "injector-impact": {
+      "baseline": {
+        "median_tool_calls": 6,
+        "median_tokens": 94536,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "9fe89940-3758-48dd-9704-ec16ea8f0f18",
+            "metrics": {
+              "tool_calls": 6,
+              "total_tokens": 94536
+            },
+            "located_oracle": true
+          }
+        ]
+      },
+      "assisted": {
+        "median_tool_calls": 6,
+        "median_tokens": 181932,
+        "n": 1,
+        "runs": [
+          {
+            "session_id": "be633b73-f432-4d40-9ad2-c6bf62640244",
+            "metrics": {
+              "tool_calls": 6,
+              "total_tokens": 181932
+            },
+            "located_oracle": true
+          }
+        ]
+      }
+    }
+  }
+}
