@@ -158,6 +158,16 @@ The two directions are not equally serious. Reporting a runtime edge that the co
 
 **Known limit**, in the safe direction: a `const enum` is inlined by the compiler, so its import disappears from the emitted JavaScript even though the source genuinely uses it as a value — that is most of the remaining 29. Whether it disappears depends on `preserveConstEnums` and `isolatedModules`, so the indexer stays conservative and counts the edge.
 
+### `verbatimModuleSyntax` and `import x = require(...)`
+
+Two more dangerous-direction gaps, closed after nest's edge-by-edge check above: neither showed up as a wrong *count* on nest (nest uses neither), only as a wrong *answer* on a repo that does.
+
+`verbatimModuleSyntax` (and its deprecated predecessors `importsNotUsedAsValues: "preserve"|"error"` and `preserveValueImports`) turn off the compiler's usage-based elision entirely — everything is kept except what's explicitly marked `type`. Running value-position analysis anyway would erase a plain `import { Foo }` that the compiler actually emits, hiding a real cycle. Confirmed against a real `tsc` emit: under `verbatimModuleSyntax`, a plain import used only in type position keeps its `import` statement; only the explicit `import type` form drops it. `src/indexer/erasure.ts`'s `isErasureDisabledByFlag` gates both the import-side walk and re-export elision on these flags.
+
+`import x = require("./mod")` (`ImportEqualsDeclaration`) is a separate AST shape from `import { x } from "..."`, and the edge walk didn't visit it at all — every such statement produced **zero edges**, not a miscounted one. Emit-verified before fixing: a value-used binding keeps its `require()`; one used only in type position, or explicitly `import type x = require(...)`, drops it entirely, same as a regular import.
+
+`export * from` was checked too, as the third item on the same list: a module whose declarations are *all* type-only (an interface-only file) still keeps its `require()`/`__exportStar` call when re-exported with `export *` — the star-export transform can't prove the target has zero runtime exports, so it never elides. The existing always-runtime treatment of star re-exports was already correct here; this just locks it in with a fixture.
+
 ## Star re-exports
 
 `find_symbol_references` returns a `re_exported_by` field alongside its references, listing barrel files that re-export the symbol's whole module (`export * from './X'`).
