@@ -33,9 +33,22 @@ export interface EmittedEdge {
   to: string;
 }
 
+/**
+ * A static import/re-export as written in SOURCE, before erasure. Pairs present
+ * here but absent from `edges` are exactly the type-only edges - the distractors
+ * the task generator tags and builds its runtime-vs-type traps from.
+ */
+export interface SourceEdge extends EmittedEdge {
+  specifier: string;
+  kind: "import" | "reexport";
+}
+
 export interface EmittedEdgesResult {
   edges: EmittedEdge[];
+  sourceEdges: SourceEdge[];
   fileCount: number;
+  rootDir: string;
+  compilerOptions: ts.CompilerOptions;
 }
 
 function normalizePath(p: string): string {
@@ -75,8 +88,21 @@ export function computeEmittedEdges(tsconfigPath: string): EmittedEdgesResult {
     .filter((sf) => !sf.isDeclarationFile && !program.isSourceFileFromExternalLibrary(sf));
 
   const edges: EmittedEdge[] = [];
+  const sourceEdges: SourceEdge[] = [];
+
+  const resolve = (specifier: string, containingFile: string): string | undefined => {
+    const resolved = ts.resolveModuleName(specifier, containingFile, options, host);
+    if (!resolved.resolvedModule || resolved.resolvedModule.isExternalLibraryImport) return undefined;
+    return normalizePath(resolved.resolvedModule.resolvedFileName);
+  };
 
   for (const sourceFile of sourceFiles) {
+    const from = normalizePath(sourceFile.fileName);
+    for (const { specifier, kind } of collectSourceSpecifiers(sourceFile)) {
+      const to = resolve(specifier, sourceFile.fileName);
+      if (to) sourceEdges.push({ from, to, specifier, kind });
+    }
+
     let emittedText: string | undefined;
     // Emitting one file at a time (rather than the whole program in one call)
     // gives an unambiguous source -> emitted-text pairing without having to
@@ -100,16 +126,38 @@ export function computeEmittedEdges(tsconfigPath: string): EmittedEdgesResult {
     ];
 
     for (const specifier of specifiers) {
-      const resolved = ts.resolveModuleName(specifier, sourceFile.fileName, options, host);
-      if (!resolved.resolvedModule || resolved.resolvedModule.isExternalLibraryImport) continue;
-      edges.push({
-        from: normalizePath(sourceFile.fileName),
-        to: normalizePath(resolved.resolvedModule.resolvedFileName),
-      });
+      const to = resolve(specifier, sourceFile.fileName);
+      if (to) edges.push({ from, to });
     }
   }
 
-  return { edges, fileCount: sourceFiles.length };
+  return {
+    edges,
+    sourceEdges,
+    fileCount: sourceFiles.length,
+    rootDir: normalizePath(basePath),
+    compilerOptions: parsed.options,
+  };
+}
+
+/** Every static module reference in the source, erased or not. Dynamic import() is
+ *  excluded here for the same reason it's excluded from the emitted scan. */
+function collectSourceSpecifiers(sourceFile: ts.SourceFile): { specifier: string; kind: SourceEdge["kind"] }[] {
+  const out: { specifier: string; kind: SourceEdge["kind"] }[] = [];
+  for (const stmt of sourceFile.statements) {
+    let spec: ts.Expression | undefined;
+    let kind: SourceEdge["kind"] = "import";
+    if (ts.isImportDeclaration(stmt)) {
+      spec = stmt.moduleSpecifier;
+    } else if (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier) {
+      spec = stmt.moduleSpecifier;
+      kind = "reexport";
+    } else if (ts.isImportEqualsDeclaration(stmt) && ts.isExternalModuleReference(stmt.moduleReference)) {
+      spec = stmt.moduleReference.expression;
+    }
+    if (spec && ts.isStringLiteral(spec)) out.push({ specifier: spec.text, kind });
+  }
+  return out;
 }
 
 /**

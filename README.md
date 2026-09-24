@@ -194,7 +194,10 @@ npm run mcp             # start the MCP server (stdio)
 npm test                # vitest
 npm run bench           # benchmark harness (spawns Claude Code per run)
 npm run oracle -- <path-to-tsconfig.json>   # diff RIE's runtime edges against a real tsc emit
+npm run taskgen -- --config=nest            # generate graded tasks -> benchmarks/generated/nest.json
 ```
+
+`npm run taskgen` builds benchmark tasks from compiler ground truth, never from RIE's index: cycle tracing (graded by a validator that accepts any runtime cycle through the start file), runtime-vs-type traps (yes/no pairs, where every "no" is a cycle that only closes through an erased import), and change impact (the answer comes from actually removing the export in memory and re-type-checking). A task is dropped when it hinges on fewer than `--min-path` files (default 4). Each task carries difficulty tags (SCC size, path length, barrels, aliases, type-only distractors) and the tsconfig flags it was generated under. Output is deterministic for a given `--seed`.
 
 `npm run oracle` is the reusable form of the manual validation described above under "Checking it edge by edge": it compiles the target repo for real (`benchmarks/oracle/emitted-edges.ts`), reads which imports actually survive into emitted output, and diffs that against RIE's own index — printing the same agree / safe-over-report / dangerous-hidden-edge breakdown, plus an SCC comparison. It shares no code with `src/indexer` or `src/engine`, by design: it's the check that would catch a bug in either.
 
