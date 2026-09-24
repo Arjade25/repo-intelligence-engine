@@ -193,7 +193,10 @@ npm run index -- ./tsconfig.json repo-index.db   # index a repo
 npm run mcp             # start the MCP server (stdio)
 npm test                # vitest
 npm run bench           # benchmark harness (spawns Claude Code per run)
+npm run oracle -- <path-to-tsconfig.json>   # diff RIE's runtime edges against a real tsc emit
 ```
+
+`npm run oracle` is the reusable form of the manual validation described above under "Checking it edge by edge": it compiles the target repo for real (`benchmarks/oracle/emitted-edges.ts`), reads which imports actually survive into emitted output, and diffs that against RIE's own index — printing the same agree / safe-over-report / dangerous-hidden-edge breakdown, plus an SCC comparison. It shares no code with `src/indexer` or `src/engine`, by design: it's the check that would catch a bug in either.
 
 The benchmark harness needs the standalone `claude` CLI on `PATH`. If it is installed but a
 shell started before it was added to `PATH` cannot see it, the harness falls back to the
