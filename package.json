@@ -17,6 +17,7 @@
     "bench": "tsx benchmarks/run.ts",
     "oracle": "tsx benchmarks/oracle/compare.ts",
     "taskgen": "tsx benchmarks/taskgen/cli.ts",
+    "harness": "tsx benchmarks/harness/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

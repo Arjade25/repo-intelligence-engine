@@ -36,14 +36,14 @@
  * ANTHROPIC_API_KEY-based auth and breaks OAuth/keychain-authenticated sessions,
  * so it's not used here.
  */
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir, tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { openDb } from "../src/storage/db.js";
 import { reindex } from "../src/engine/index.js";
+import { resolveClaudeBin, runClaude } from "./harness/claude.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..");
@@ -102,9 +102,6 @@ const INDEX_DB = join(__dirname, `${TARGET_DIR}-index.db`);
 const MCP_SERVER_ENTRY = join(PROJECT_ROOT, "dist", "mcp-server", "index.js");
 const MCP_SERVER_NAME = "rie";
 
-const READ_ONLY_TOOLS = "Read,Grep,Glob";
-const CLAUDE_CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-
 /** Build the project and index the target repo, so the assisted arm's MCP server
  * serves reads against an already-built index (not an extra "reindex" call the
  * agent would need to make itself, which a real user wouldn't do per-question). */
@@ -129,43 +126,6 @@ function buildProjectAndIndex(): void {
   db.close();
 }
 
-/**
- * Resolve the `claude` CLI once, up front, so a bad setup fails immediately with
- * an actionable message instead of on run 1 of N.
- *
- * PATH alone is not reliable here: an already-open terminal keeps the environment
- * block it started with, so a shell (or a VS Code window) launched before `claude`
- * was added to PATH cannot see it even though every new terminal can. That
- * produces a spawn ENOENT, which spawnSync reports as `status: null` with
- * undefined stderr - indistinguishable at a glance from a crash, and previously
- * surfaced as the useless "claude exited null: undefined".
- */
-function resolveClaudeBin(): string {
-  const override = process.env.RIE_CLAUDE_BIN;
-  if (override) {
-    if (!existsSync(override)) throw new Error(`RIE_CLAUDE_BIN is set but does not exist: ${override}`);
-    return override;
-  }
-
-  const onPath = spawnSync("claude", ["--version"], { encoding: "utf8", shell: false });
-  if (!onPath.error) return "claude";
-
-  // Standard install location, used when PATH is stale or was never updated.
-  const local = join(homedir(), ".local", "bin", process.platform === "win32" ? "claude.exe" : "claude");
-  if (existsSync(local)) {
-    console.log(`note: "claude" is not on this shell's PATH; using ${local}`);
-    return local;
-  }
-
-  throw new Error(
-    `Cannot find the "claude" CLI, which this harness spawns for every run.\n` +
-      `  - not on PATH (${(onPath.error as NodeJS.ErrnoException).code})\n` +
-      `  - not at ${local}\n` +
-      `Fix: open a NEW terminal (an already-open one keeps a stale environment), ` +
-      `or set RIE_CLAUDE_BIN to the executable's full path.`
-  );
-}
-
 /** Writes an MCP config file naming exactly our server, for --mcp-config. */
 function writeMcpConfig(): string {
   const cfg = {
@@ -183,114 +143,28 @@ function writeMcpConfig(): string {
   return path;
 }
 
-/** Locate a run's transcript by globbing for the session id we chose ourselves -
- * sidesteps needing to replicate Claude Code's cwd -> project-directory-name
- * encoding, which was observed to vary in casing between runs. */
-function findTranscript(sessionId: string): string {
-  const projectsDir = join(CLAUDE_CONFIG_DIR, "projects");
-  for (const entry of readdirSync(projectsDir)) {
-    const candidate = join(projectsDir, entry, `${sessionId}.jsonl`);
-    if (existsSync(candidate)) return candidate;
-  }
-  throw new Error(`transcript not found for session ${sessionId} under ${projectsDir}`);
-}
-
-/** Tally tool_use blocks and token usage from assistant turns, skipping subagent sidechains. */
-function parseMetrics(transcriptPath: string): Metrics {
-  const lines = readFileSync(transcriptPath, "utf8").trim().split("\n");
-  let toolCalls = 0;
-  let totalTokens = 0;
-
-  for (const line of lines) {
-    let record: {
-      type?: string;
-      isSidechain?: boolean;
-      message?: { content?: unknown; usage?: Record<string, number> };
-    };
-    try {
-      record = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (record.type !== "assistant" || record.isSidechain) continue;
-
-    const usage = record.message?.usage;
-    if (usage) {
-      totalTokens +=
-        (usage.input_tokens ?? 0) +
-        (usage.output_tokens ?? 0) +
-        (usage.cache_creation_input_tokens ?? 0) +
-        (usage.cache_read_input_tokens ?? 0);
-    }
-
-    const content = record.message?.content;
-    if (!Array.isArray(content)) continue;
-
-    for (const block of content as { type?: string; name?: string }[]) {
-      if (block.type !== "tool_use") continue;
-      toolCalls++;
-    }
-  }
-
-  return { tool_calls: toolCalls, total_tokens: totalTokens };
-}
-
 function runOnce(task: Task, arm: Arm, mcpConfigPath: string, claudeBin: string): RunResult {
-  const sessionId = randomUUID();
-
-  const args = [
-    "-p",
-    task.prompt,
-    "--session-id",
-    sessionId,
-    "--output-format",
-    "json",
-    "--permission-mode",
-    "bypassPermissions",
-    "--tools",
-    READ_ONLY_TOOLS,
-    "--setting-sources",
-    "project,local",
-    "--strict-mcp-config",
-  ];
-  if (arm === "assisted") {
-    args.push("--mcp-config", mcpConfigPath);
-  }
-
-  // shell:false is deliberate: shell:true concatenates+re-splits args without
-  // escaping (Node warns on this), which silently breaks multi-word prompts like
-  // task.prompt into separate argv tokens - verified this actually happens on
-  // Windows before switching. claude resolves fine as a direct executable.
-  const result = spawnSync(claudeBin, args, { cwd: TARGET_REPO, encoding: "utf8", shell: false, stdio: "pipe" });
-  // A spawn failure and a nonzero exit both leave status !== 0, but only one of
-  // them has anything useful in stderr - report them differently.
-  if (result.error) {
-    throw new Error(
-      `could not spawn "${claudeBin}" for task=${task.id} arm=${arm}: ` +
-        `${(result.error as NodeJS.ErrnoException).code ?? result.error.message} (the process never started)`
-    );
-  }
-  if (result.status !== 0) {
-    throw new Error(
-      `claude exited ${result.status}${result.signal ? ` (signal ${result.signal})` : ""} ` +
-        `for task=${task.id} arm=${arm}: ${result.stderr || "(no stderr)"}`
-    );
-  }
-
-  let finalText = "";
+  let out;
   try {
-    finalText = (JSON.parse(result.stdout) as { result?: string }).result ?? "";
-  } catch {
-    finalText = result.stdout;
+    out = runClaude(claudeBin, {
+      prompt: task.prompt,
+      cwd: TARGET_REPO,
+      mcpConfigPath: arm === "assisted" ? mcpConfigPath : undefined,
+    });
+  } catch (err) {
+    throw new Error(`task=${task.id} arm=${arm}: ${(err as Error).message}`);
   }
 
-  const metrics = parseMetrics(findTranscript(sessionId));
   const located = task.oracle.files.some((f) => {
     const basename = f.split(":")[0].split("/").pop()!;
-    return finalText.includes(basename);
+    return out.final_text.includes(basename);
   });
 
-  return { session_id: sessionId, metrics, located_oracle: located };
+  return {
+    session_id: out.session_id,
+    metrics: { tool_calls: out.metrics.tool_calls, total_tokens: out.metrics.total_tokens },
+    located_oracle: located,
+  };
 }
 
 function median(xs: number[]): number {
