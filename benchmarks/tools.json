@@ -1,0 +1,17 @@
+{
+  "_comment": "Tool arms for the generated-task harness (npm run harness). Each arm runs alone: its MCP server is the only one loaded (--strict-mcp-config), on top of the same built-in Read/Grep/Glob every arm gets. Placeholders: ${NODE} ${PROJECT_ROOT} ${REPO_DIR} ${TSCONFIG} ${RIE_DB}. `setup` names a preparation step the harness knows how to run before any agent starts.",
+  "tools": {
+    "baseline": {
+      "description": "No MCP server - built-in Read/Grep/Glob only."
+    },
+    "rie": {
+      "description": "Repository Intelligence Engine, prebuilt index of the target repo.",
+      "setup": "rie-index",
+      "mcp": {
+        "command": "${NODE}",
+        "args": ["${PROJECT_ROOT}/dist/mcp-server/index.js"],
+        "env": { "RIE_DB": "${RIE_DB}", "RIE_TSCONFIG": "${TSCONFIG}" }
+      }
+    }
+  }
+}

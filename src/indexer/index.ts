@@ -234,7 +234,7 @@ function extractEdges(
             // A re-export binds no local name, so there is no local use to
             // inspect - what survives is decided by the re-exported symbol's
             // own meaning in the module it came from.
-            isTypeOnly: el.isTypeOnly || !reExportHasValueMeaning(el, checker),
+            isTypeOnly: el.isTypeOnly || !reExportHasValueMeaning(el, checker, options),
           });
         }
       }
@@ -245,6 +245,24 @@ function extractEdges(
       // findSymbolReferences' re_exported_by.
       const isStarReExport = !stmt.exportClause || ts.isNamespaceExport(stmt.exportClause);
       writeEdges(toFile, names, stmt.isTypeOnly, isStarReExport ? "reexport_star" : "imports");
+    } else if (ts.isImportEqualsDeclaration(stmt)) {
+      // `import x = require("./mod")` is a distinct AST node from ImportDeclaration
+      // (not `import { x } from ...` syntax), and was previously not walked here at
+      // all - every such statement produced zero edges, regardless of runtime use.
+      // `import x = SomeNamespace.Member` (no module specifier, an EntityName
+      // reference) is the other legal form; it names no module, so there is nothing
+      // to resolve.
+      const ref = stmt.moduleReference;
+      if (!ts.isExternalModuleReference(ref)) continue;
+      const toFile = resolveSpecifier(ref.expression);
+      if (!toFile) continue;
+
+      // Binds a single whole-module name, like a namespace import - erasure is
+      // decided the same way: the explicit keyword, or whether `stmt.name` is ever
+      // used from a value position (confirmed against real emit: an import-equals
+      // whose binding goes entirely unused is dropped from the compiled output).
+      const erased = stmt.isTypeOnly || !erasure.isUsedAsValue(stmt.name);
+      writeEdges(toFile, [], erased);
     }
   }
 }

@@ -158,6 +158,16 @@ The two directions are not equally serious. Reporting a runtime edge that the co
 
 **Known limit**, in the safe direction: a `const enum` is inlined by the compiler, so its import disappears from the emitted JavaScript even though the source genuinely uses it as a value — that is most of the remaining 29. Whether it disappears depends on `preserveConstEnums` and `isolatedModules`, so the indexer stays conservative and counts the edge.
 
+### `verbatimModuleSyntax` and `import x = require(...)`
+
+Two more dangerous-direction gaps, closed after nest's edge-by-edge check above: neither showed up as a wrong *count* on nest (nest uses neither), only as a wrong *answer* on a repo that does.
+
+`verbatimModuleSyntax` (and its deprecated predecessors `importsNotUsedAsValues: "preserve"|"error"` and `preserveValueImports`) turn off the compiler's usage-based elision entirely — everything is kept except what's explicitly marked `type`. Running value-position analysis anyway would erase a plain `import { Foo }` that the compiler actually emits, hiding a real cycle. Confirmed against a real `tsc` emit: under `verbatimModuleSyntax`, a plain import used only in type position keeps its `import` statement; only the explicit `import type` form drops it. `src/indexer/erasure.ts`'s `isErasureDisabledByFlag` gates both the import-side walk and re-export elision on these flags.
+
+`import x = require("./mod")` (`ImportEqualsDeclaration`) is a separate AST shape from `import { x } from "..."`, and the edge walk didn't visit it at all — every such statement produced **zero edges**, not a miscounted one. Emit-verified before fixing: a value-used binding keeps its `require()`; one used only in type position, or explicitly `import type x = require(...)`, drops it entirely, same as a regular import.
+
+`export * from` was checked too, as the third item on the same list: a module whose declarations are *all* type-only (an interface-only file) still keeps its `require()`/`__exportStar` call when re-exported with `export *` — the star-export transform can't prove the target has zero runtime exports, so it never elides. The existing always-runtime treatment of star re-exports was already correct here; this just locks it in with a fixture.
+
 ## Star re-exports
 
 `find_symbol_references` returns a `re_exported_by` field alongside its references, listing barrel files that re-export the symbol's whole module (`export * from './X'`).
@@ -183,7 +193,16 @@ npm run index -- ./tsconfig.json repo-index.db   # index a repo
 npm run mcp             # start the MCP server (stdio)
 npm test                # vitest
 npm run bench           # benchmark harness (spawns Claude Code per run)
+npm run oracle -- <path-to-tsconfig.json>   # diff RIE's runtime edges against a real tsc emit
+npm run taskgen -- --config=nest            # generate graded tasks -> benchmarks/generated/nest.json
+npm run harness -- --config=nest --runs=5   # run them per tool arm, grade, and summarize
 ```
+
+`npm run harness` runs every generated task as a fresh headless Claude Code session per tool arm, with the identical prompt, model, repo checkout and built-in Read/Grep/Glob. Arms differ only in the one MCP server they load, listed in `benchmarks/tools.json` (`baseline` loads none). Each prompt ends with a fixed instruction to answer in a JSON block. Only that block is graded, by the task's validator, and a reply without one is scored wrong rather than guessed at. Arm order rotates across runs, and a crashed run counts as a wrong answer, not a missing one. Reported per task, category and arm: accuracy, **tokens per correct answer** (all tokens spent ÷ correct answers), median tokens with IQR, tool calls and wall time. Tokens are the primary cost measure rather than dollars, because the token count doesn't depend on cache hits. Results keep every run's transcript metrics, final text and grade in `benchmarks/results/harness/`. `--dry-run` prints the exact agent commands without launching anything. Claude Code exposes no temperature setting, so variance between runs is measured rather than controlled.
+
+`npm run taskgen` builds benchmark tasks from compiler ground truth, never from RIE's index: cycle tracing (graded by a validator that accepts any runtime cycle through the start file), runtime-vs-type traps (yes/no pairs, where every "no" is a cycle that only closes through an erased import), and change impact (the answer comes from actually removing the export in memory and re-type-checking). A task is dropped when it hinges on fewer than `--min-path` files (default 4). Each task carries difficulty tags (SCC size, path length, barrels, aliases, type-only distractors) and the tsconfig flags it was generated under. Output is deterministic for a given `--seed`.
+
+`npm run oracle` is the reusable form of the manual validation described above under "Checking it edge by edge": it compiles the target repo for real (`benchmarks/oracle/emitted-edges.ts`), reads which imports actually survive into emitted output, and diffs that against RIE's own index — printing the same agree / safe-over-report / dangerous-hidden-edge breakdown, plus an SCC comparison. It shares no code with `src/indexer` or `src/engine`, by design: it's the check that would catch a bug in either.
 
 The benchmark harness needs the standalone `claude` CLI on `PATH`. If it is installed but a
 shell started before it was added to `PATH` cannot see it, the harness falls back to the

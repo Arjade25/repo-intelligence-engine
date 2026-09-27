@@ -53,7 +53,7 @@ describe("indexRepository (fixtures/sample-repo)", () => {
     }
   });
 
-  it("gives a side-effect import (`import './x'`) a NULL to_symbol_id", () => {
+  it("gives a side-effect import (`import './x'`) a NULL to_symbol_id and never erases it", () => {
     const edge = db
       .prepare("SELECT * FROM edges WHERE from_file LIKE '%/main.ts' AND to_file LIKE '%/sideEffect.ts'")
       .get() as EdgeRow | undefined;
@@ -61,6 +61,10 @@ describe("indexRepository (fixtures/sample-repo)", () => {
     expect(edge!.to_symbol_id).toBeNull();
     // Also NULL-symbol, but NOT a re-export - the two must stay distinguishable.
     expect(edge!.edge_type).toBe("imports");
+    // A side-effect import has no importClause at all, so it never enters the
+    // isTypeOnly check that default/namespace imports go through - running the
+    // module IS the point, so it must never be flagged erased.
+    expect(edge!.is_type_only).toBe(0);
   });
 
   it("gives a named import through a barrel a NULL to_symbol_id (symbol lives elsewhere)", () => {
@@ -225,5 +229,74 @@ describe("indexRepository: is_type_only (fixtures/type-only-repo)", () => {
       expect(byName("Base").is_type_only).toBe(0);
       expect(byName("Contract").is_type_only).toBe(1);
     });
+  });
+
+  // `import x = require(...)` (ImportEqualsDeclaration) is a separate AST shape
+  // from `import { x } from "..."` and was previously not walked by extractEdges
+  // at all - every such statement produced zero edges. All three cases below were
+  // checked against a real tsc emit before being written (see PR notes): a
+  // value-used binding keeps its require(), a type-position-only or explicitly
+  // `import type`-marked one is dropped entirely.
+  describe("import x = require(...)", () => {
+    it("keeps a value-used import-equals as a runtime edge", () => {
+      const edges = edgesBetween("importEquals.ts", "values.ts");
+      expect(edges).toHaveLength(1);
+      expect(edges[0].to_symbol_id).toBeNull(); // binds the whole module, like a namespace import
+      expect(edges[0].is_type_only).toBe(0);
+    });
+
+    it("erases an import-equals binding used only in type position, without the `type` keyword", () => {
+      const edges = edgesBetween("importEqualsTypeOnly.ts", "values.ts");
+      expect(edges).toHaveLength(1);
+      expect(edges[0].is_type_only).toBe(1);
+    });
+
+    it("erases an explicit `import type x = require(...)` regardless of usage", () => {
+      const edges = edgesBetween("importEqualsExplicitType.ts", "values.ts");
+      expect(edges).toHaveLength(1);
+      expect(edges[0].is_type_only).toBe(1);
+    });
+  });
+
+  it("keeps `export * from` as a runtime edge even when the target module is entirely type-only", () => {
+    // b.ts exports only `interface B` - no runtime export exists to re-export, yet
+    // emit-verified tsc output still keeps the require()/__exportStar call, because
+    // determining a target module has zero runtime exports would need cross-module
+    // analysis the star-export transform doesn't do.
+    const edges = edgesBetween("starReexportTypesOnly.ts", "b.ts");
+    expect(edges).toHaveLength(1);
+    expect(edges[0].edge_type).toBe("reexport_star");
+    expect(edges[0].is_type_only).toBe(0);
+  });
+});
+
+/**
+ * `verbatimModuleSyntax` (and its deprecated predecessors, covered directly by
+ * isErasureDisabledByFlag's own unit tests in erasure.test.ts) turns off
+ * value-position erasure entirely: the compiler keeps every import except what's
+ * explicitly marked `type`. Its own fixture, because running value-position
+ * analysis anyway would silently erase real runtime edges - the dangerous
+ * direction. Both cases here were checked against a real tsc emit first.
+ */
+describe("indexRepository: verbatimModuleSyntax (fixtures/verbatim-module-syntax-repo)", () => {
+  const db = openDb(":memory:");
+  indexRepository(db, join(__dirname, "../../fixtures/verbatim-module-syntax-repo/tsconfig.json"));
+
+  function edgesBetween(from: string, to: string): EdgeRow[] {
+    return db
+      .prepare(`SELECT * FROM edges WHERE from_file LIKE ? AND to_file LIKE ?`)
+      .all(`%/${from}`, `%/${to}`) as EdgeRow[];
+  }
+
+  it("keeps a plain import used only as a type - the same shape erased.ts erases under default rules", () => {
+    const edges = edgesBetween("plainErased.ts", "values.ts");
+    expect(edges).toHaveLength(1);
+    expect(edges[0].is_type_only).toBe(0);
+  });
+
+  it("still erases an explicit `import type` - the one thing that does under this flag", () => {
+    const edges = edgesBetween("explicitErased.ts", "values.ts");
+    expect(edges).toHaveLength(1);
+    expect(edges[0].is_type_only).toBe(1);
   });
 });

@@ -27,11 +27,33 @@ import ts from "typescript";
  * (22 such edges in nest). Those are reported as runtime edges here, which can only
  * over-report a cycle, never hide one - and whether they really vanish depends on
  * `preserveConstEnums`/`isolatedModules`, so staying conservative is correct.
+ *
+ * `verbatimModuleSyntax` (and its two deprecated predecessors,
+ * `importsNotUsedAsValues: "preserve"|"error"` and `preserveValueImports`) turn off
+ * value-position elision entirely: under these flags the compiler keeps every
+ * import/re-export except the ones explicitly marked with the `type` modifier,
+ * regardless of how (or whether) the binding is used in the file. Running
+ * value-position analysis anyway is the DANGEROUS direction - it would erase a
+ * plain `import { Foo }` used only in type position that the compiler actually
+ * emits, hiding a real runtime cycle. So `isErasureDisabledByFlag` gates both this
+ * module's own walk and `reExportHasValueMeaning` below; callers still apply the
+ * explicit `type` keyword themselves (index.ts already does, per edge/clause).
  */
 export interface ErasureAnalysis {
   /** True if `declarationName` (an import/default/namespace binding) is referenced
    *  from at least one value position in the file it was declared in. */
   isUsedAsValue(declarationName: ts.Identifier): boolean;
+}
+
+/** True when the compiler options tell TypeScript to stop eliding imports based on
+ *  usage and keep everything but what's explicitly marked `type`. */
+export function isErasureDisabledByFlag(options: ts.CompilerOptions): boolean {
+  return (
+    options.verbatimModuleSyntax === true ||
+    options.importsNotUsedAsValues === ts.ImportsNotUsedAsValues.Preserve ||
+    options.importsNotUsedAsValues === ts.ImportsNotUsedAsValues.Error ||
+    options.preserveValueImports === true
+  );
 }
 
 export function analyzeErasure(
@@ -40,6 +62,7 @@ export function analyzeErasure(
   options: ts.CompilerOptions = {}
 ): ErasureAnalysis {
   const metadataRetainsTypes = options.emitDecoratorMetadata === true;
+  const erasureDisabled = isErasureDisabledByFlag(options);
   // Symbols referenced from a value position somewhere in this file. Collected in
   // one walk so a file with many imports still costs a single traversal.
   const valueUsed = new Set<ts.Symbol>();
@@ -67,10 +90,13 @@ export function analyzeErasure(
     }
     ts.forEachChild(node, visit);
   };
-  ts.forEachChild(sourceFile, visit);
+  // The walk only feeds isUsedAsValue's heuristic; skip it when that heuristic is
+  // disabled below, rather than paying for a traversal nothing will read.
+  if (!erasureDisabled) ts.forEachChild(sourceFile, visit);
 
   return {
     isUsedAsValue(declarationName: ts.Identifier): boolean {
+      if (erasureDisabled) return true; // compiler keeps it unless explicitly `type`
       const symbol = checker.getSymbolAtLocation(declarationName);
       return symbol ? valueUsed.has(symbol) : true; // unresolvable -> assume it runs
     },
@@ -154,9 +180,16 @@ function isClassExtendsExpression(node: ts.Node, child: ts.Node): boolean {
 
 /**
  * `export { A } from './x'` names nothing locally, so there is no use to analyze -
- * what decides it is whether A is a value in the module it comes from.
+ * what decides it is whether A is a value in the module it comes from. Same
+ * verbatimModuleSyntax-family gate as analyzeErasure: under those flags the
+ * re-export is kept regardless of A's meaning, unless explicitly marked `type`.
  */
-export function reExportHasValueMeaning(specifier: ts.ExportSpecifier, checker: ts.TypeChecker): boolean {
+export function reExportHasValueMeaning(
+  specifier: ts.ExportSpecifier,
+  checker: ts.TypeChecker,
+  options: ts.CompilerOptions = {}
+): boolean {
+  if (isErasureDisabledByFlag(options)) return true;
   const local = checker.getSymbolAtLocation(specifier.name);
   if (!local) return true;
   let target = local;
