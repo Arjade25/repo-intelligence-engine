@@ -108,6 +108,21 @@ describe("engine queries (fixtures/sample-repo)", () => {
   it("dependency_path returns not-found for an unknown symbol", () => {
     expect(dependencyPath(db, "DoesNotExist", "add")).toEqual({ found: false, chain: [] });
   });
+
+  it("dependency_path accepts file paths at either end, including a symbol-less barrel", () => {
+    // index.ts declares no symbols, so before file ends it could not be named at all.
+    expect(dependencyPath(db, "src/main.ts", "src\\index.ts")).toEqual({ found: true, chain: [mainTs, indexTs] });
+    expect(dependencyPath(db, "run", "mathUtils.ts")).toEqual({
+      found: true,
+      chain: [mainTs, indexTs, mathUtilsTs],
+    });
+  });
+
+  it("dependency_path explains an unmatched file end instead of a bare not-found", () => {
+    const result = dependencyPath(db, "src/nope.ts", "add");
+    expect(result).toMatchObject({ found: false, chain: [] });
+    expect(result.note).toContain('"src/nope.ts" is not an indexed file');
+  });
 });
 
 /**

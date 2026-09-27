@@ -69,9 +69,13 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
 
   server.tool(
     "dependency_path",
-    "Is there an import path between two symbols, and what is it (file chain). If a symbol name is " +
-      "declared in multiple files, the result's `ambiguity` field lists every candidate and which was used.",
-    { symbol_a: z.string(), symbol_b: z.string() },
+    "Is there an import path from A to B, and what is it (shortest file chain, following static imports " +
+      "and re-exports, including type-only ones). Each end may be a symbol name or a file path. If a symbol " +
+      "name is declared in multiple files, the result's `ambiguity` field lists every candidate and which was used.",
+    {
+      symbol_a: z.string().describe("start: a symbol name or a file path"),
+      symbol_b: z.string().describe("target: a symbol name or a file path"),
+    },
     async ({ symbol_a, symbol_b }) => json(dependencyPath(db, symbol_a, symbol_b))
   );
 

@@ -5,7 +5,7 @@
  *   npm run harness -- --config=nest [--tools=baseline,rie] [--runs=3] [--model=<id>]
  *   npm run harness -- --tsconfig=<path> --tasks=<generated.json> [...]
  *
- * Filters: --category=cycle_trace,change_impact  --task-ids=id,id  --limit=N
+ * Filters: --category=cycle_trace,dependency_path,change_impact  --task-ids=id,id  --limit=N
  * Other:   --skip-build  --dry-run (print the plan and exact agent command, spawn nothing)
  *          --out=<path>  (default benchmarks/results/harness/<label>-<timestamp>.json)
  *

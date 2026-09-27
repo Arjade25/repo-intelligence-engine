@@ -29,6 +29,20 @@ export function bfsParents(adj: Adjacency, source: string, allowed?: Set<string>
   return parents;
 }
 
+/** Hop distance from `source` to every node it reaches (source itself at 0). */
+export function bfsDepths(adj: Adjacency, source: string): Map<string, number> {
+  const depth = new Map<string, number>([[source, 0]]);
+  const queue = [source];
+  for (let i = 0; i < queue.length; i++) {
+    for (const next of adj.get(queue[i]) ?? []) {
+      if (depth.has(next)) continue;
+      depth.set(next, depth.get(queue[i])! + 1);
+      queue.push(next);
+    }
+  }
+  return depth;
+}
+
 /** Node path source..target from a bfsParents result, or null if unreachable. */
 export function pathTo(parents: Map<string, string | null>, target: string): string[] | null {
   if (!parents.has(target)) return null;
