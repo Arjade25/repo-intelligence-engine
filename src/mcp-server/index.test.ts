@@ -93,7 +93,8 @@ describe("mcp-server (thin adapter over engine/, plan step 5)", () => {
     const { c: directCount } = db.prepare("SELECT COUNT(*) AS c FROM symbols").get() as { c: number };
     expect(viaMcp.symbols).toBe(directCount);
     expect(directCount).toBe(6); // the fixture's hand-counted symbol total (step 1)
-  });
+    expect(viaMcp).not.toHaveProperty("warning"); // every fixture import resolves
+  }, 30_000); // a full reindex: ~3s idle, over vitest's 5s default under parallel load (see engine/reindex.test.ts)
 
   it("find_circular_dependencies: reports none for the acyclic fixture repo", async () => {
     const viaMcp = await callToolJson(client, "find_circular_dependencies", {});

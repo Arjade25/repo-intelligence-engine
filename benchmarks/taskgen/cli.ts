@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * Usage:
- *   npm run taskgen -- --config=nest [--out=path] [--seed=1] [--min-path=4] [--max=10] [--impact-candidates=15]
+ *   npm run taskgen -- --config=nest [--out=path] [--seed=1] [--min-path=4] [--max=10] [--impact-candidates=15] [--allow-unresolved]
  *   npm run taskgen -- <path-to-tsconfig.json> --repo=<label> --prefix=<id-prefix> [...same flags]
  *
  * --config reads a benchmarks/tasks-<name>.json and generates against its pinned
@@ -22,6 +22,7 @@ const num = (name: string) => (flag(name) !== undefined ? Number(flag(name)) : u
 let tsconfigPath: string;
 let repo: string;
 let prefix: string;
+let configMinPath: number | undefined;
 
 const configName = flag("config");
 if (configName) {
@@ -29,6 +30,7 @@ if (configName) {
   if (!configPath) throw new Error(`--config=${configName}: no such task file`);
   const config = JSON.parse(readFileSync(configPath, "utf8")) as {
     repo: { name: string; dir?: string; url: string; commit: string; tsconfig: string };
+    taskgen?: { min_path?: number };
   };
   tsconfigPath = join(BENCH_DIR, config.repo.dir ?? "target-repo", config.repo.tsconfig);
   if (!existsSync(tsconfigPath)) {
@@ -37,6 +39,7 @@ if (configName) {
   const slug = config.repo.url.replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
   repo = `${slug}@${config.repo.commit}`;
   prefix = flag("prefix") ?? config.repo.name;
+  configMinPath = config.taskgen?.min_path;
 } else {
   tsconfigPath = args.find((a) => !a.startsWith("--")) ?? "";
   repo = flag("repo") ?? "";
@@ -53,9 +56,10 @@ const set = generateTasks({
   repo,
   idPrefix: prefix,
   seed: num("seed"),
-  minPath: num("min-path"),
+  minPath: num("min-path") ?? configMinPath,
   maxPerCategory: num("max"),
   maxImpactCandidates: num("impact-candidates"),
+  allowUnresolved: args.includes("--allow-unresolved"),
 });
 
 const out = flag("out") ?? join(BENCH_DIR, "generated", `${prefix}.json`);
@@ -72,5 +76,8 @@ console.log(
   `| runtime_type_trap | ${s.runtime_type_trap.candidates} | ${s.runtime_type_trap.passed_min_path} ` +
     `(${s.runtime_type_trap.true_candidates} yes / ${s.runtime_type_trap.false_candidates} no) | ${s.runtime_type_trap.emitted} |`
 );
-console.log(`| change_impact | ${s.change_impact.candidates} checked | ${s.change_impact.passed_min_path} | ${s.change_impact.emitted} |`);
+console.log(
+  `| change_impact | ${s.change_impact.candidates} checked | ${s.change_impact.passed_min_path} ` +
+    `(${s.change_impact.dropped_broken_reexport} dropped: broken named re-export) | ${s.change_impact.emitted} |`
+);
 console.log(`\n${set.tasks.length} tasks -> ${out} (${Date.now() - started}ms)`);

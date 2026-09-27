@@ -23,6 +23,7 @@ import {
   findCircularDependencies,
   reindex,
 } from "../engine/index.js";
+import { describeUnresolved } from "../indexer/resolution.js";
 
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -97,9 +98,13 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
     "Rebuild the index for the repo.",
     { path: z.string().optional().describe("optional subtree; v1 rebuilds all") },
     async () => {
-      reindex(db, tsconfigPath);
+      const { unresolved_internal_imports } = reindex(db, tsconfigPath);
       const { c } = db.prepare("SELECT COUNT(*) AS c FROM symbols").get() as { c: number };
-      return json({ ok: true, symbols: c });
+      return json({
+        ok: true,
+        symbols: c,
+        ...(unresolved_internal_imports.length > 0 && { warning: describeUnresolved(unresolved_internal_imports) }),
+      });
     }
   );
 

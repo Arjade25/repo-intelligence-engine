@@ -1,8 +1,10 @@
 import ts from "typescript";
+import { relative } from "node:path";
 import { computeEmittedEdges } from "../oracle/emitted-edges.js";
 import { findStronglyConnectedComponents } from "../oracle/tarjan.js";
 import { bfsParents, buildAdjacency, pathTo, shortestCycleThrough, type Adjacency } from "./graph.js";
 import { ImpactOracle } from "./impact.js";
+import { describeUnresolved, findUnresolvedInternalImports } from "../../src/indexer/resolution.js";
 
 /**
  * Task generator (plan step 3) for the MVP categories: 1 cycle tracing, 3
@@ -29,6 +31,8 @@ export interface GenerateOptions {
   maxPerCategory?: number;
   /** How many top-ranked (file, export) pairs get a full re-type-check. Each costs one whole-program check. */
   maxImpactCandidates?: number;
+  /** Generate even if some internal imports don't resolve. Off by default: those answers would be wrong. */
+  allowUnresolved?: boolean;
 }
 
 export interface GraphDifficulty {
@@ -112,7 +116,7 @@ export interface GeneratedTaskSet {
     source_sccs: number[];
     cycle_trace: CategoryStats;
     runtime_type_trap: CategoryStats & { true_candidates: number; false_candidates: number };
-    change_impact: CategoryStats;
+    change_impact: CategoryStats & { dropped_broken_reexport: number };
   };
   tasks: Task[];
 }
@@ -124,6 +128,16 @@ export function generateTasks(opts: GenerateOptions): GeneratedTaskSet {
   const minPath = opts.minPath ?? 4;
   const maxPerCategory = opts.maxPerCategory ?? 10;
   const maxImpactCandidates = opts.maxImpactCandidates ?? 15;
+
+  // Checked first, before any ground truth is computed: an internal import the
+  // compiler can't resolve is a baseline type error, so the impact oracle can't see
+  // anything break through it and the emitted-edge graph silently loses it. This is
+  // how nest's change-impact answers once lost every cross-package importer.
+  const impact = new ImpactOracle(opts.tsconfigPath);
+  const unresolved = findUnresolvedInternalImports(impact.program);
+  if (unresolved.length > 0 && !opts.allowUnresolved) {
+    throw new Error(`${describeUnresolved(unresolved)}\n(pass --allow-unresolved to generate anyway)`);
+  }
 
   const oracle = computeEmittedEdges(opts.tsconfigPath);
   const root = oracle.rootDir;
@@ -155,7 +169,8 @@ export function generateTasks(opts: GenerateOptions): GeneratedTaskSet {
   };
 
   const flags = pickFlags(oracle.compilerOptions);
-  const base = (id: string, prompt: string): TaskBase => ({ id, repo: opts.repo, prompt, tsconfig_flags: flags });
+  const scope = scopeSentence(opts.tsconfigPath, root);
+  const base = (id: string, prompt: string): TaskBase => ({ id, repo: opts.repo, prompt: `${prompt} ${scope}`, tsconfig_flags: flags });
   const taskId = (category: string, i: number) => `${opts.idPrefix}-${category}-${String(i + 1).padStart(3, "0")}`;
 
   const runtimeSccs = findStronglyConnectedComponents(runtimeEdges);
@@ -269,7 +284,6 @@ export function generateTasks(opts: GenerateOptions): GeneratedTaskSet {
   }));
 
   // --- Category 4: change impact -------------------------------------------------
-  const impact = new ImpactOracle(opts.tsconfigPath);
   const importersOf = new Map<string, Set<string>>();
   const reexportersOf = new Map<string, Set<string>>();
   for (const e of sourceEdges) {
@@ -294,6 +308,9 @@ export function generateTasks(opts: GenerateOptions): GeneratedTaskSet {
     return seen;
   };
 
+  const mentions = (file: string, name: string) =>
+    new RegExp(`\\b${name.replace(/[$]/g, "\\$")}\\b`).test(impact.program.getSourceFile(abs(file))?.text ?? "");
+
   // Cheap ranking first, since each real check re-type-checks the whole program:
   // count files that can see the export (import the file, or a barrel re-exporting
   // it) and whose text names the symbol at all.
@@ -304,9 +321,8 @@ export function generateTasks(opts: GenerateOptions): GeneratedTaskSet {
     for (const barrel of barrelsOf(file)) for (const f of importersOf.get(barrel) ?? []) visible.add(f);
     visible.delete(file);
     for (const decl of impact.exportedDeclarations(sf.fileName)) {
-      const pattern = new RegExp(`\\b${decl.name.replace(/[$]/g, "\\$")}\\b`);
       let score = 0;
-      for (const f of visible) if (pattern.test(impact.program.getSourceFile(abs(f))?.text ?? "")) score++;
+      for (const f of visible) if (mentions(f, decl.name)) score++;
       if (score >= minPath) ranked.push({ file, name: decl.name, score });
     }
   }
@@ -314,21 +330,38 @@ export function generateTasks(opts: GenerateOptions): GeneratedTaskSet {
 
   const impactTasks: ImpactTask[] = [];
   let impactEvaluated = 0;
+  let impactBrokenReexport = 0;
   for (const cand of ranked.slice(0, maxImpactCandidates)) {
     if (impactTasks.length >= maxPerCategory) break;
     impactEvaluated++;
     const files = impact.impactOfRemovingExport(abs(cand.file), cand.name).map(rel);
     if (files.length < minPath) continue;
+    // A star re-export never errors when a name goes missing, so an impacted file
+    // that re-exports from the chain is a NAMED re-export (`export { X } from`)
+    // that broke. TypeScript's error recovery still resolves X through it, so its
+    // importers compile - on nest's `Type` that shielded 73 files an agent reading
+    // the imports would (reasonably) list. The answer is compiler-true but hinges
+    // on recovery behaviour no one can predict from source, so drop the task - but
+    // only if something is actually shielded: a broken re-export whose importers
+    // never use X leaves an ordinary, fair answer.
+    const chainFiles = new Set([cand.file, ...barrelsOf(cand.file)]);
+    const brokenReexports = files.filter((f) => [...chainFiles].some((t) => reexportersOf.get(t)?.has(f)));
+    const shielded = brokenReexports.some((r) =>
+      [...(importersOf.get(r) ?? [])].some((f) => !files.includes(f) && !chainFiles.has(f) && mentions(f, cand.name))
+    );
+    if (shielded) {
+      impactBrokenReexport++;
+      continue;
+    }
 
     const direct = files.filter((f) => importersOf.get(cand.file)?.has(f));
     const viaBarrel = files.filter((f) => f !== cand.file && !direct.includes(f));
-    const chainFiles = new Set([cand.file, ...barrelsOf(cand.file)]);
     const hops = viaBarrel.map((f) => (pathTo(bfsParents(sourceAdj, f), cand.file)?.length ?? 2) - 2);
     impactTasks.push({
       ...base(
         taskId("change-impact", impactTasks.length),
         `If ${cand.name} stopped being exported from ${cand.file} (the declaration stays, only the export ` +
-          `is removed), which files in this repository would fail to type-check? List every such file.`
+          `is removed), which files would fail to type-check? List every such file.`
       ),
       category: "change_impact",
       validator: "compile_impact_set",
@@ -363,10 +396,32 @@ export function generateTasks(opts: GenerateOptions): GeneratedTaskSet {
         false_candidates: falseCands.length,
         emitted: trapTasks.length,
       },
-      change_impact: { candidates: impactEvaluated, passed_min_path: impactTasks.length, emitted: impactTasks.length },
+      change_impact: {
+        candidates: impactEvaluated,
+        passed_min_path: impactTasks.length + impactBrokenReexport,
+        dropped_broken_reexport: impactBrokenReexport,
+        emitted: impactTasks.length,
+      },
     },
     tasks: [...cycleTasks, ...trapTasks, ...impactTasks],
   };
+}
+
+/**
+ * Every prompt names its scope. Ground truth only covers the files the tsconfig
+ * includes, and an agent told "this repository" will reasonably also count spec
+ * files and sibling projects - on nest that alone made correct answers grade wrong.
+ */
+function scopeSentence(tsconfigPath: string, repoRoot: string): string {
+  const raw = ts.readConfigFile(tsconfigPath, ts.sys.readFile).config ?? {};
+  const list = (xs: unknown) => (Array.isArray(xs) && xs.length > 0 ? xs.map((x) => `\`${x}\``).join(", ") : undefined);
+  const name = relative(repoRoot, tsconfigPath).replace(/\\/g, "/");
+  const include = list(raw.include) ?? list(raw.files) ?? "`**/*`";
+  const exclude = list(raw.exclude);
+  return (
+    `Scope: only the files ${name} includes count (include ${include}${exclude ? `; exclude ${exclude}` : ""}); ` +
+    `ignore every other file in the repository.`
+  );
 }
 
 function pickFlags(o: ts.CompilerOptions): TsconfigFlags {

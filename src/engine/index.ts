@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import type { SymbolRow } from "../storage/db.js";
 import { indexRepository, loadTsconfig } from "../indexer/index.js";
 import { createLanguageService, indexReferences } from "../indexer/references.js";
+import type { UnresolvedImport } from "../indexer/resolution.js";
 
 /**
  * Query engine (plan §5): pure functions over the SQLite index. This is the
@@ -471,12 +472,18 @@ function filesOfSymbol(db: Database.Database, name: string): string[] {
  * The transaction plus openDb's busy_timeout pragma make the whole operation
  * atomic and serialize concurrent writers instead of corrupting the data.
  */
-export function reindex(db: Database.Database, tsconfigPath: string): void {
+export interface ReindexResult {
+  /** Internal imports the compiler cannot resolve - non-empty means the index is partial. */
+  unresolved_internal_imports: UnresolvedImport[];
+}
+
+export function reindex(db: Database.Database, tsconfigPath: string): ReindexResult {
   const run = db.transaction(() => {
-    indexRepository(db, tsconfigPath);
+    const { unresolved } = indexRepository(db, tsconfigPath);
     const { fileNames, options } = loadTsconfig(tsconfigPath);
     const service = createLanguageService(fileNames, options);
     indexReferences(db, service);
+    return { unresolved_internal_imports: unresolved };
   });
-  run();
+  return run();
 }

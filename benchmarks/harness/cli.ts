@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import type { GeneratedTaskSet, Task } from "../taskgen/generate.js";
 import { openDb } from "../../src/storage/db.js";
 import { reindex } from "../../src/engine/index.js";
+import { describeUnresolved } from "../../src/indexer/resolution.js";
 import { claudeArgs, resolveClaudeBin, runClaude } from "./claude.js";
 import { runBenchmark, summarize, type CellSummary, type ToolArm } from "./bench.js";
 import { buildPrompt } from "./grade.js";
@@ -133,8 +134,12 @@ if (setups.has("rie-index")) {
   if (!existsSync(join(PROJECT_ROOT, "dist", "mcp-server", "index.js"))) throw new Error("dist/mcp-server/index.js missing - build first");
   console.log(`Indexing ${tsconfigPath} -> ${rieDb} ...`);
   const db = openDb(rieDb);
-  reindex(db, tsconfigPath);
+  const { unresolved_internal_imports } = reindex(db, tsconfigPath);
   db.close();
+  if (unresolved_internal_imports.length > 0) {
+    // The rie arm would be answering from a partial index - that measures the tsconfig, not the tool.
+    throw new Error(`refusing to benchmark against a partial index:\n${describeUnresolved(unresolved_internal_imports)}`);
+  }
 }
 
 const startedAt = new Date();

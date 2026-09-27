@@ -17,6 +17,8 @@ const TSCONFIG = join(FIXTURE, "tsconfig.json");
  *   trap/    e -> f -> g -> h, h -> e type-only      source cycle only (every pair is "no")
  *   lib/     makeWidget, reached by 1 direct importer + 4 via the barrel (one through @lib alias)
  *   solo/    soloFn with a single importer (must be filtered)
+ *   gadget/  makeGadget, reached through a NAMED re-export whose importer error
+ *            recovery shields (must be dropped)
  */
 describe("generateTasks (fixtures/taskgen-repo)", () => {
   const set = generateTasks({ tsconfigPath: TSCONFIG, repo: "fixture/taskgen-repo", idPrefix: "fx" });
@@ -75,6 +77,24 @@ describe("generateTasks (fixtures/taskgen-repo)", () => {
     });
   });
 
+  it("drops makeGadget: its answer hinges on error recovery through a broken named re-export", () => {
+    expect(set.stats.change_impact.dropped_broken_reexport).toBe(1);
+    expect(impacts.some((t) => t.expected.symbol === "makeGadget")).toBe(false);
+  });
+
+  it("states the tsconfig's scope in every prompt", () => {
+    for (const t of set.tasks) {
+      expect(t.prompt).toContain("Scope: only the files tsconfig.json includes count (include `src/**/*`)");
+    }
+  });
+
+  it("refuses to generate when internal imports don't resolve, unless told to", () => {
+    const esm = join(__dirname, "../../fixtures/esm-alias-repo/tsconfig.json");
+    expect(() => generateTasks({ tsconfigPath: esm, repo: "fixture/esm", idPrefix: "esm" })).toThrow(
+      /2 internal import\(s\) do not resolve[\s\S]*--allow-unresolved/
+    );
+  });
+
   it("records the tsconfig flags every task was generated under", () => {
     for (const t of set.tasks) expect(t.tsconfig_flags).toEqual(set.tsconfig_flags);
     expect(set.tsconfig_flags).toMatchObject({ emitDecoratorMetadata: false, verbatimModuleSyntax: false });
@@ -83,7 +103,7 @@ describe("generateTasks (fixtures/taskgen-repo)", () => {
   it("is deterministic for a given seed", () => {
     const again = generateTasks({ tsconfigPath: TSCONFIG, repo: "fixture/taskgen-repo", idPrefix: "fx" });
     expect(again.tasks).toEqual(set.tasks);
-  });
+  }, 30_000); // a full regeneration: ~1-2s idle, measured at 6s under a loaded parallel run
 });
 
 describe("validators", () => {

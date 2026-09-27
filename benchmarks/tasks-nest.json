@@ -5,11 +5,18 @@
     "url": "https://github.com/nestjs/nest.git",
     "commit": "40d07dc62ccb41686859b804f8523ae0e2dd1984",
     "tsconfig": "tsconfig.rie.json",
-    "note": "nestjs/nest monorepo, 664 non-spec packages/*.ts files, 1473 indexed symbols, 3442 file-level edges. Second target alongside TypeORM, chosen because its import style is the opposite of TypeORM's: nest writes plain `import { Foo }` even for pure types (218 `import type` statements vs 1698 plain `import {`), where TypeORM writes `import type`. tsconfig.rie.json is a self-contained config added for indexing; it MUST carry the `paths` aliases from nest's root tsconfig, because 230 non-spec files import across packages as `@nestjs/core/...` rather than by relative path - without `paths` every cross-package edge is silently lost. Oracles below were verified with independent grep ground-truth, not engine output alone."
+    "note": "nestjs/nest monorepo, 664 non-spec packages/*.ts files, 1473 indexed symbols, 3442 file-level edges. Second target alongside TypeORM, chosen because its import style is the opposite of TypeORM's: nest writes plain `import { Foo }` even for pure types (218 `import type` statements vs 1698 plain `import {`), where TypeORM writes `import type`. tsconfig.rie.json is a self-contained config added for indexing; it MUST carry the `paths` aliases from nest's root tsconfig, because 230 non-spec files import across packages as `@nestjs/core/...` rather than by relative path - without `paths` every cross-package edge is silently lost. Oracles below were verified with independent grep ground-truth, not engine output alone. The aliases must point at FILES (\"@nestjs/common\": [\"./packages/common/index.ts\"], \"@nestjs/common/*\": [\"./packages/common/*.ts\", \"./packages/common/*\"]), not directories: every nest package is \"type\": \"module\", so under module Node16 its imports resolve in ESM mode, where a directory alias never resolves. The type-checker then treats all 556 cross-package imports as TS2307, so references and change-impact answers silently lose every cross-package file. The committed copy of this tsconfig is benchmarks/tsconfig.rie.nest.json; copy it into the clone."
+  },
+  "taskgen": {
+    "min_path": 3,
+    "note": "nest has only two runtime cycles, 4 files each, and the shortest loop through any member is 3 files. The default --min-path=4 drops every cycle_trace task and leaves only 2 true runtime_type_trap candidates (2 yes / 8 no, so answering no scores 80%)."
   },
   "protocol": {
     "runs_per_arm": 5,
-    "arms": ["baseline", "assisted"],
+    "arms": [
+      "baseline",
+      "assisted"
+    ],
     "note": "Fresh session per run (fresh --session-id, no --continue/--resume); baseline and assisted for a task never share a session (plan §8/B)."
   },
   "tasks": [
