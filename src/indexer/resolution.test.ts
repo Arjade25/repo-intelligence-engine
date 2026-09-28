@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import ts from "typescript";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { loadTsconfig } from "./index.js";
 import { describeUnresolved, findUnresolvedInternalImports } from "./resolution.js";
 import { openDb } from "../storage/db.js";
@@ -45,4 +47,32 @@ describe("findUnresolvedInternalImports (fixtures/esm-alias-repo)", () => {
     expect(reindex(openDb(":memory:"), ESM_TSCONFIG).unresolved_internal_imports).toHaveLength(2);
     expect(reindex(openDb(":memory:"), SAMPLE_TSCONFIG).unresolved_internal_imports).toEqual([]);
   }, 30_000); // two full reindexes - see engine/reindex.test.ts on load-dependent timing
+});
+
+describe("findUnresolvedInternalImports: bare require() calls", () => {
+  it("flags an internal require() that doesn't resolve, but not an external one", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rie-require-"));
+    try {
+      mkdirSync(join(dir, "src"));
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "rie-require-fixture", type: "commonjs" }));
+      writeFileSync(
+        join(dir, "tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true },
+          include: ["src/**/*"],
+        })
+      );
+      writeFileSync(join(dir, "src/ok.ts"), "export const ok = 1;\n");
+      writeFileSync(
+        join(dir, "src/main.ts"),
+        ['declare const require: (id: string) => unknown;', 'require("./ok");', 'require("./gone");', 'require("some-package");'].join("\n")
+      );
+
+      const { fileNames, options } = loadTsconfig(join(dir, "tsconfig.json"));
+      const unresolved = findUnresolvedInternalImports(ts.createProgram(fileNames, options));
+      expect(unresolved.map((u) => [u.specifier, u.line])).toEqual([["./gone", 3]]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

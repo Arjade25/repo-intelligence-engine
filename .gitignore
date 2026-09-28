@@ -12,3 +12,6 @@ dist/
 # The cloned target repos do not — each is reproducible from its tasks file (url+commit).
 benchmarks/target-repo/
 benchmarks/target-repo-nest/
+
+# Local tool state (includes a log of prompts) - never commit
+.codetree/

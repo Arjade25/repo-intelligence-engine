@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDb } from "../storage/db.js";
-import { indexRepository } from "./index.js";
+import ts from "typescript";
+import { findTopLevelRequireCalls, indexRepository } from "./index.js";
 import type { EdgeRow } from "../storage/db.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -134,6 +135,31 @@ describe("indexRepository: emitDecoratorMetadata (fixtures/decorator-metadata-re
     expect(edges).toHaveLength(1);
     expect(edges[0].is_type_only).toBe(1);
   });
+
+  // Metadata serializes one entity name, and only a value (a class) survives as a
+  // reference - these were 7 of nest's safe-direction over-reports. Each case was
+  // checked against real emit (benchmarks/oracle/emitted-edges.test.ts has the same list).
+  it.each([
+    ["decoratedInterface.ts", "an interface serializes as Object"],
+    ["decoratedAlias.ts", "a type alias serializes as Object"],
+    ["decoratedGenericArg.ts", "a class in type arguments is not serialized"],
+    ["decoratedUnion.ts", "a union of different classes serializes as Object"],
+    ["decoratedNullable.ts", "`X | null` under strictNullChecks serializes as Object"],
+  ])("erases a decorated parameter type when %s: %s", (file) => {
+    const edges = edgesBetween(file, "contracts.ts");
+    expect(edges.length).toBeGreaterThan(0);
+    expect(edges.every((e) => e.is_type_only === 1)).toBe(true);
+  });
+
+  it("keeps `X | null` when strictNullChecks is off - null is skipped and X serialized", () => {
+    const loose = openDb(":memory:");
+    indexRepository(loose, join(__dirname, "../../fixtures/decorator-metadata-repo/tsconfig.loose.json"));
+    const edges = loose
+      .prepare(`SELECT * FROM edges WHERE from_file LIKE '%/decoratedNullable.ts' AND to_file LIKE '%/contracts.ts'`)
+      .all() as EdgeRow[];
+    expect(edges).toHaveLength(1);
+    expect(edges[0].is_type_only).toBe(0);
+  });
 });
 
 describe("indexRepository: is_type_only (fixtures/type-only-repo)", () => {
@@ -237,6 +263,12 @@ describe("indexRepository: is_type_only (fixtures/type-only-repo)", () => {
   // checked against a real tsc emit before being written (see PR notes): a
   // value-used binding keeps its require(), a type-position-only or explicitly
   // `import type`-marked one is dropped entirely.
+  it("erases `extends` on a `declare class`, which emits no code", () => {
+    const edges = edgesBetween("ambientExtends.ts", "values.ts");
+    expect(edges).toHaveLength(1);
+    expect(edges[0].is_type_only).toBe(1);
+  });
+
   describe("import x = require(...)", () => {
     it("keeps a value-used import-equals as a runtime edge", () => {
       const edges = edgesBetween("importEquals.ts", "values.ts");
@@ -255,6 +287,24 @@ describe("indexRepository: is_type_only (fixtures/type-only-repo)", () => {
       const edges = edgesBetween("importEqualsExplicitType.ts", "values.ts");
       expect(edges).toHaveLength(1);
       expect(edges[0].is_type_only).toBe(1);
+    });
+  });
+
+  // A bare require() is a call expression, not an import statement: until this was
+  // added the statement walk skipped it, and TypeORM's cli-ts-node-esm.ts -> cli.ts
+  // was the one real runtime edge the emitted-JS oracle found missing. Both
+  // fixtures were checked against the oracle's real emit first.
+  describe("bare require(...) calls", () => {
+    it("records a top-level require() as a runtime edge, even inside an `if`", () => {
+      const edges = edgesBetween("bareRequire.ts", "values.ts");
+      expect(edges).toHaveLength(1);
+      expect(edges[0].edge_type).toBe("require");
+      expect(edges[0].to_symbol_id).toBeNull();
+      expect(edges[0].is_type_only).toBe(0);
+    });
+
+    it("records no edge for a require() nested inside a function (a lazy load)", () => {
+      expect(edgesBetween("lazyRequire.ts", "d.ts")).toHaveLength(0);
     });
   });
 
@@ -298,5 +348,70 @@ describe("indexRepository: verbatimModuleSyntax (fixtures/verbatim-module-syntax
     const edges = edgesBetween("explicitErased.ts", "values.ts");
     expect(edges).toHaveLength(1);
     expect(edges[0].is_type_only).toBe(1);
+  });
+});
+
+/**
+ * A const enum's import survives emit only when the compiler keeps the enum object:
+ * value uses need `isolatedModules`, exports need that or `preserveConstEnums`.
+ * The same table is asserted against real emit in benchmarks/oracle/emitted-edges.test.ts.
+ */
+describe("indexRepository: const enums (fixtures/const-enum-repo)", () => {
+  const cases: [tsconfig: string, runtimeFrom: string[]][] = [
+    ["tsconfig.json", ["mixedEnums.ts", "usesRegularEnum.ts"]],
+    [
+      "tsconfig.isolated.json",
+      ["localReexportConstEnum.ts", "mixedEnums.ts", "reexportConstEnum.ts", "usesConstEnum.ts", "usesRegularEnum.ts"],
+    ],
+    ["tsconfig.preserve.json", ["localReexportConstEnum.ts", "mixedEnums.ts", "reexportConstEnum.ts", "usesRegularEnum.ts"]],
+  ];
+
+  for (const [tsconfig, runtimeFrom] of cases) {
+    it(`${tsconfig}: runtime edges into enums.ts come from exactly ${runtimeFrom.length} file(s)`, () => {
+      const db = openDb(":memory:");
+      indexRepository(db, join(__dirname, "../../fixtures/const-enum-repo", tsconfig));
+      const from = (
+        db
+          .prepare(`SELECT DISTINCT from_file FROM edges WHERE is_type_only = 0 AND to_file LIKE '%/enums.ts'`)
+          .all() as { from_file: string }[]
+      )
+        .map((r) => r.from_file.split("/").pop()!)
+        .sort();
+      expect(from).toEqual(runtimeFrom);
+    });
+  }
+});
+
+describe("findTopLevelRequireCalls", () => {
+  const specifiersOf = (code: string) =>
+    findTopLevelRequireCalls(ts.createSourceFile("t.ts", code, ts.ScriptTarget.Latest, true)).map((s) => s.text);
+
+  it("finds require() calls at top level, including nested in blocks and expressions", () => {
+    expect(specifiersOf(`require("./a"); if (x) { require("./b"); } const c = require("./c").c;`)).toEqual([
+      "./a",
+      "./b",
+      "./c",
+    ]);
+  });
+
+  it("skips every kind of function boundary", () => {
+    const code = `
+      function f() { require("./f"); }
+      const g = () => require("./g");
+      const h = function () { require("./h"); };
+      class K {
+        m() { require("./m"); }
+        get p() { return require("./p"); }
+        set p(v) { require("./s"); }
+        constructor() { require("./ctor"); }
+        static { require("./static"); }
+      }
+      Promise.resolve().then(() => require("./dynamic"));
+    `;
+    expect(specifiersOf(code)).toEqual([]);
+  });
+
+  it("ignores non-literal arguments, extra arguments, and member calls like require.resolve", () => {
+    expect(specifiersOf(`require(name); require("./a", 1); require.resolve("./b"); obj.require("./c");`)).toEqual([]);
   });
 });

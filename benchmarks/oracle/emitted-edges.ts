@@ -15,7 +15,7 @@ import ts from "typescript";
  * unconditionally, which sounds harmless but isn't: TS hard-errors
  * (`TS5110: module must be set to 'NodeNext' when moduleResolution is
  * 'NodeNext'`) the moment moduleResolution is NodeNext/Node16 - exactly the
- * setting nest and TypeORM both use. Forcing moduleResolution away from NodeNext
+ * setting nest uses (TypeORM uses classic `node` resolution). Forcing moduleResolution away from NodeNext
  * to dodge that would silently break `.js`-suffixed relative specifiers, which
  * that mode resolves back to `.ts` source and classic resolution does not.
  * Leaving both alone sidesteps the whole problem: a CJS-detected file still emits

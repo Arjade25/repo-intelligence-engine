@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assisted Run Sequence</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1d1f23;--muted:#5f6670;--surface:#ffffff;--line:#c3c7cd;--hl:#8a3fc7;--phase:#f1ede4;--code:#f0eee9;--a1:#2f6fd0}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#16181c;--fg:#e7e9ec;--muted:#a0a6ae;--surface:#1f2227;--line:#434a54;--hl:#c690f2;--phase:#24272d;--code:#262a30;--a1:#72a5ff}}
+:root[data-theme="dark"]{--bg:#16181c;--fg:#e7e9ec;--muted:#a0a6ae;--surface:#1f2227;--line:#434a54;--hl:#c690f2;--phase:#24272d;--code:#262a30;--a1:#72a5ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1320px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:24px;margin:0 0 4px}
+h2{font-size:18px;margin:32px 0 8px}
+p,li{max-width:80ch}
+.sub{color:var(--muted);margin:0 0 18px}
+a{color:var(--a1)}
+code{font:13px ui-monospace,"Cascadia Mono",Consolas,monospace;background:var(--code);padding:1px 5px;border-radius:4px}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+figure{margin:0}
+figcaption{color:var(--muted);font-size:14px;margin:8px 2px 0}
+svg.dia{display:block;width:100%;min-width:1100px;height:auto}
+.head{fill:var(--surface);stroke:var(--line)}
+.hh{stroke:var(--hl);stroke-width:1.5}
+.hn{font:600 12px ui-monospace,"Cascadia Mono",Consolas,monospace;fill:var(--fg)}
+.hs{font:11px system-ui,sans-serif;fill:var(--muted)}
+.life{stroke:var(--line);stroke-dasharray:2 4}
+.msg,.ret{fill:none;stroke:var(--muted);stroke-width:1.4}
+.ret{stroke-dasharray:5 4}
+.msg.hl,.ret.hl{stroke:var(--hl);stroke-width:1.9}
+.mkc{fill:var(--muted)}.mkh{fill:var(--hl)}
+.lbl{font:11.5px ui-monospace,"Cascadia Mono",Consolas,monospace;fill:var(--fg);paint-order:stroke;stroke:var(--surface);stroke-width:4px}
+.lbl.hl{fill:var(--hl)}
+.phase{fill:var(--phase)}
+.ph{font:600 12px system-ui,sans-serif;fill:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1>One assisted benchmark run: sequence</h1>
+<p class="sub">This is the path through <code>benchmarks/harness/</code> for a single task running on the <b>rie</b> arm, as written in the code at commit <code>8025afa</code> (after the PR #2 merge). The example task is <code>dependency_path</code>, the category where the graded nest run showed the engine paying for itself. The purple segment is the only part the baseline arm never runs. Back to the <a href="architecture.html">architecture diagram</a>.</p>
+<figure>
+<div class="scroll">
+<svg class="dia" viewBox="0 0 1285 1166" role="img" aria-label="Sequence of one assisted benchmark run on a dependency_path task: harness/cli.ts reindexes once, refuses a partial index, and writes an MCP config; bench.ts calls claude.ts, which spawns the headless claude CLI with --mcp-config; the CLI spawns the MCP server, which opens the prebuilt SQLite index; a dependency_path tool call flows from MCP server to engine, which resolves each end and runs a BFS over the edges table, and back as JSON; the CLI returns its final text; claude.ts parses the transcript for tool calls and tokens; grade.ts checks the last JSON block against task.expected with validateImportPath; results are summarized and written to benchmarks/results/harness.">
+<defs>
+<marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mkc" d="M0 0L10 5L0 10z"/></marker>
+<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mkh" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="head" x="18" y="14" width="144" height="46" rx="7"/><text class="hn" x="90" y="34" text-anchor="middle">harness/cli.ts</text><text class="hs" x="90" y="51" text-anchor="middle">npm run harness</text><line class="life" x1="90" y1="60" x2="90" y2="1156"/>
+<rect class="head" x="173" y="14" width="144" height="46" rx="7"/><text class="hn" x="245" y="34" text-anchor="middle">harness/bench.ts</text><text class="hs" x="245" y="51" text-anchor="middle">runBenchmark</text><line class="life" x1="245" y1="60" x2="245" y2="1156"/>
+<rect class="head" x="328" y="14" width="144" height="46" rx="7"/><text class="hn" x="400" y="34" text-anchor="middle">harness/claude.ts</text><text class="hs" x="400" y="51" text-anchor="middle">runClaude</text><line class="life" x1="400" y1="60" x2="400" y2="1156"/>
+<rect class="head hh" x="483" y="14" width="144" height="46" rx="7"/><text class="hn" x="555" y="34" text-anchor="middle">claude CLI</text><text class="hs" x="555" y="51" text-anchor="middle">headless -p</text><line class="life" x1="555" y1="60" x2="555" y2="1156"/>
+<rect class="head hh" x="638" y="14" width="144" height="46" rx="7"/><text class="hn" x="710" y="34" text-anchor="middle">mcp-server/index.ts</text><text class="hs" x="710" y="51" text-anchor="middle">stdio child</text><line class="life" x1="710" y1="60" x2="710" y2="1156"/>
+<rect class="head hh" x="793" y="14" width="144" height="46" rx="7"/><text class="hn" x="865" y="34" text-anchor="middle">engine/index.ts</text><text class="hs" x="865" y="51" text-anchor="middle">query engine</text><line class="life" x1="865" y1="60" x2="865" y2="1156"/>
+<rect class="head hh" x="948" y="14" width="144" height="46" rx="7"/><text class="hn" x="1020" y="34" text-anchor="middle">SQLite</text><text class="hs" x="1020" y="51" text-anchor="middle">harness-&lt;label&gt;-index.db</text><line class="life" x1="1020" y1="60" x2="1020" y2="1156"/>
+<rect class="head" x="1103" y="14" width="144" height="46" rx="7"/><text class="hn" x="1175" y="34" text-anchor="middle">harness/grade.ts</text><text class="hs" x="1175" y="51" text-anchor="middle">+ taskgen/validators.ts</text><line class="life" x1="1175" y1="60" x2="1175" y2="1156"/>
+<rect class="phase" x="14" y="92" width="1257" height="22" rx="5"/><text class="ph" x="26" y="107">Setup — once per npm run harness invocation (the rie arm has setup: "rie-index")</text>
+<path class="msg" d="M90 140 H862" marker-end="url(#ac)"/>
+<text class="lbl" x="98" y="134">reindex(db, tsconfig)   (after npm run build)</text>
+<path class="msg" d="M865 174 H1017" marker-end="url(#ac)"/>
+<text class="lbl" x="873" y="168">one txn: clear → INSERT symbols, edges, references_</text>
+<path class="ret" d="M865 208 H93" marker-end="url(#ac)"/>
+<text class="lbl" x="100" y="202">{ unresolved_internal_imports }  (from indexer/resolution.ts)</text>
+<path class="msg" d="M90 234 H124 V248 H94" marker-end="url(#ac)"/>
+<text class="lbl" x="132" y="244">non-empty → throw: refuses to benchmark a partial index</text>
+<path class="msg" d="M90 268 H124 V282 H94" marker-end="url(#ac)"/>
+<text class="lbl" x="132" y="278">write &lt;tmp&gt;/rie.mcp.json from tools.json</text>
+<path class="msg" d="M90 310 H242" marker-end="url(#ac)"/>
+<text class="lbl" x="98" y="304">runBenchmark({ tasks, tools, runs, runner })</text>
+<rect class="phase" x="14" y="340" width="1257" height="22" rx="5"/><text class="ph" x="26" y="355">One assisted run — dependency_path task × arm "rie" × run k (fresh session)</text>
+<path class="msg" d="M245 388 H397" marker-end="url(#ac)"/>
+<text class="lbl" x="253" y="382">runner({ prompt: buildPrompt(task), cwd, mcpConfigPath })</text>
+<path class="msg" d="M400 422 H552" marker-end="url(#ac)"/>
+<text class="lbl" x="408" y="416">spawnSync claude -p … --session-id &lt;uuid&gt; --tools Read,Grep,Glob --strict-mcp-config --mcp-config rie.mcp.json</text>
+<path class="msg hl" d="M555 456 H707" marker-end="url(#ah)"/>
+<text class="lbl hl" x="563" y="450">spawn node dist/mcp-server/index.js</text>
+<path class="msg hl" d="M710 490 H1017" marker-end="url(#ah)"/>
+<text class="lbl hl" x="718" y="484">openDb(RIE_DB) — prebuilt index, no reindex</text>
+<path class="msg hl" d="M555 524 H707" marker-end="url(#ah)"/>
+<text class="lbl hl" x="563" y="518">tools/call mcp__rie__dependency_path { symbol_a: &lt;file A&gt;, symbol_b: &lt;file B&gt; }</text>
+<path class="msg hl" d="M710 558 H862" marker-end="url(#ah)"/>
+<text class="lbl hl" x="718" y="552">dependencyPath(db, a, b)</text>
+<path class="msg hl" d="M865 592 H1017" marker-end="url(#ah)"/>
+<text class="lbl hl" x="873" y="586">path-like end → resolveIndexedPath()</text>
+<path class="msg hl" d="M865 626 H1017" marker-end="url(#ah)"/>
+<text class="lbl hl" x="873" y="620">BFS: SELECT to_file FROM edges WHERE from_file=?</text>
+<path class="ret hl" d="M1020 660 H868" marker-end="url(#ah)"/>
+<text class="lbl hl" x="875" y="654">neighbours (type-only edges included)</text>
+<path class="msg hl" d="M865 686 H899 V700 H869" marker-end="url(#ah)"/>
+<text class="lbl hl" x="907" y="696">repeat until B is reached or the queue empties</text>
+<path class="ret hl" d="M865 728 H713" marker-end="url(#ah)"/>
+<text class="lbl hl" x="720" y="722">DependencyPath { found, chain, ambiguity?, note? }</text>
+<path class="ret hl" d="M710 762 H558" marker-end="url(#ah)"/>
+<text class="lbl hl" x="565" y="756">{ content: [{ type: "text", text: JSON }] }</text>
+<path class="msg" d="M555 788 H589 V802 H559" marker-end="url(#ac)"/>
+<text class="lbl" x="597" y="798">model may interleave Grep/Read and more MCP calls</text>
+<path class="ret" d="M555 830 H403" marker-end="url(#ac)"/>
+<text class="lbl" x="410" y="824">stdout JSON { result, total_cost_usd, num_turns }</text>
+<path class="msg" d="M400 856 H434 V870 H404" marker-end="url(#ac)"/>
+<text class="lbl" x="442" y="866">findTranscript(id) → parseTranscript(): tool_use + tokens</text>
+<path class="ret" d="M400 898 H248" marker-end="url(#ac)"/>
+<text class="lbl" x="255" y="892">ClaudeRunOutput { final_text, metrics, wall_ms }</text>
+<path class="msg" d="M245 932 H1172" marker-end="url(#ac)"/>
+<text class="lbl" x="253" y="926">gradeAnswer(task, final_text, repoRoot)</text>
+<path class="msg" d="M1175 958 H1141 V972 H1171" marker-end="url(#ac)"/>
+<text class="lbl" x="1133" y="968" text-anchor="end">last ```json {path} → validateImportPath vs task.expected</text>
+<path class="ret" d="M1175 1000 H248" marker-end="url(#ac)"/>
+<text class="lbl" x="255" y="994">Grade { parsed, correct, score }</text>
+<rect class="phase" x="14" y="1030" width="1257" height="22" rx="5"/><text class="ph" x="26" y="1045">After all runs</text>
+<path class="ret" d="M245 1078 H93" marker-end="url(#ac)"/>
+<text class="lbl" x="100" y="1072">RunRecord[] → summarize() via stats.ts (median, IQR)</text>
+<path class="msg" d="M90 1104 H124 V1118 H94" marker-end="url(#ac)"/>
+<text class="lbl" x="132" y="1114">write results/harness/&lt;label&gt;-&lt;ts&gt;.json</text>
+</svg>
+</div>
+<figcaption>Solid arrows are calls and dashed arrows are returns. Purple marks the hops that exist only because <code>--mcp-config</code> was passed. The tool call shown is just an example: the model chooses which tools to call and how often. Across the 50 recorded rie runs on these tasks it made 53 <code>dependency_path</code> calls, 38 <code>find_related_files</code> calls, 264 Grep calls and 37 Reads.</figcaption>
+</figure>
+
+<h2>What the code pins down</h2>
+<ul>
+  <li><b>The index is built once, before any agent starts, and has to be complete.</b> <code>harness/cli.ts</code> calls <code>openDb</code> and <code>reindex</code> on <code>benchmarks/harness-&lt;label&gt;-index.db</code>. If <code>reindex</code> returns any <code>unresolved_internal_imports</code>, the harness throws instead of running: a rie arm answering from a partial index would be measuring the tsconfig, not the tool. Each run's MCP server then opens that same file read-only in practice. The <code>reindex</code> tool exists, but the harness never calls it.</li>
+  <li><b><code>dependency_path</code> takes files as well as symbols.</b> An argument containing a slash or a source-file extension is resolved against the stored paths (exact match, then a unique suffix match, case-insensitive). The BFS follows every edge, including type-only ones, because the question is about imports, not runtime.</li>
+  <li><b>Both arms get the same command except for one flag.</b> <code>claudeArgs</code> in <code>claude.ts</code> gives every run <code>--tools Read,Grep,Glob --setting-sources project,local --strict-mcp-config --permission-mode bypassPermissions</code>, and adds <code>--mcp-config</code> only for the rie arm.</li>
+  <li><b>Metrics come from the transcript, not from the CLI's own report.</b> <code>findTranscript</code> looks up <code>~/.claude/projects/*/&lt;session-id&gt;.jsonl</code> using a session id the harness chose itself. <code>parseTranscript</code> counts <code>tool_use</code> blocks and adds up input, output, and cache token usage from main-thread assistant turns, skipping sidechains.</li>
+  <li><b>Grading needs neither the engine nor the repo.</b> <code>gradeAnswer</code> reads only the last fenced JSON block and checks it against <code>task.expected</code>, which taskgen built earlier from the emitted-JS oracle. For a path task, <code>validateImportPath</code> accepts any chain whose every hop is in <code>path_edges</code>, or <code>null</code> when no path exists. A reply with no parseable block is graded wrong, and a crashed run counts as wrong rather than missing.</li>
+  <li><b>The older <code>run.ts</code> harness follows the same path up to the grading step.</b> It sends the hand-written prompt as is, then sets <code>located_oracle</code> by checking whether the answer text contains the oracle filename. It is a presence check, not a grader.</li>
+</ul>
+</main>
+</body>
+</html>

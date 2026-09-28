@@ -11,7 +11,7 @@ import type { UnresolvedImport } from "../indexer/resolution.js";
  * ALL logic in this file, none in mcp-server/.
  */
 
-export interface FindModuleResult {
+export interface SymbolDeclaration {
   name: string;
   kind: string;
   file_path: string;
@@ -31,6 +31,20 @@ export interface RelatedFiles {
   note?: string;          // set when the path failed to resolve or was ambiguous
 }
 
+export interface FindModuleResult {
+  /**
+   * false = no top-level declaration has this exact name. find_module used to
+   * return a bare [] here - the one tool left doing so after the others gained
+   * explicit not-found results - and benchmark agents read an empty list as
+   * "no results" and fell back to grep. Mirrors find_symbol_references' flag.
+   */
+  symbol_indexed: boolean;
+  declarations: SymbolDeclaration[];
+  /** Indexed names equal to the query ignoring case - set only on a miss, omitted when none. */
+  similar_names?: string[];
+  note?: string;          // set when symbol_indexed is false: explains what IS indexed
+}
+
 export interface SymbolReference {
   used_in_file: string;
   line: number | null;
@@ -46,7 +60,7 @@ export interface SymbolReferencesResult {
    * only top-level declarations are) reads as "no callers, safe to delete".
    */
   symbol_indexed: boolean;
-  declarations: FindModuleResult[]; // every indexed declaration of this name
+  declarations: SymbolDeclaration[]; // every indexed declaration of this name
   references: SymbolReference[];
   note?: string;                    // set when symbol_indexed is false: explains why
   /**
@@ -72,17 +86,44 @@ export interface DependencyPath {
   // discloses every candidate and which one the path actually used, instead of
   // silently tie-breaking (the v1 behavior this replaced).
   ambiguity?: { symbol_a?: SymbolResolution; symbol_b?: SymbolResolution };
-  note?: string;          // set when a file-path end could not be matched to one indexed file
+  /**
+   * Set when both ends resolved but no path exists: how many files the search
+   * reached from A (A itself plus everything it transitively imports). A bare
+   * found:false saved only ~1.1x on no-path tasks, because agents re-walked the
+   * import graph by hand to confirm the negative; this states the search was
+   * exhaustive, and how large it was.
+   */
+  files_searched?: number;
+  note?: string;          // why there's no chain: an end matched nothing, or the search came up empty
 }
 
 /** find_module(name): locate which file(s) define a symbol. */
-export function findModule(db: Database.Database, name: string): FindModuleResult[] {
-  return db
+export function findModule(db: Database.Database, name: string): FindModuleResult {
+  const declarations = db
     .prepare(
       `SELECT name, kind, file_path, line_start
          FROM symbols WHERE name = ? ORDER BY file_path`
     )
-    .all(name) as FindModuleResult[];
+    .all(name) as SymbolDeclaration[];
+  if (declarations.length > 0) return { symbol_indexed: true, declarations };
+
+  // Names are matched exactly (case-sensitive, like the language), so the likeliest
+  // near miss is a casing slip - `userService` for `UserService`.
+  const similar = (
+    db
+      .prepare(`SELECT DISTINCT name FROM symbols WHERE name = ? COLLATE NOCASE ORDER BY name LIMIT 10`)
+      .all(name) as { name: string }[]
+  ).map((r) => r.name);
+
+  return {
+    symbol_indexed: false,
+    declarations: [],
+    ...(similar.length > 0 && { similar_names: similar }),
+    note:
+      `No top-level declaration named "${name}" is indexed. Only top-level class/function/` +
+      `interface/type/const declarations are - methods, properties, enums, namespaces, ` +
+      `non-const variables and locals are not, so this does NOT mean the name is absent from the repo.`,
+  };
 }
 
 /** find_related_files(file_path): both directions, via the file-level edges table. */
@@ -184,7 +225,7 @@ export function findSymbolReferences(
     return {
       declarations: (path
         ? db.prepare(declSql).all(symbol, path)
-        : db.prepare(declSql).all(symbol)) as FindModuleResult[],
+        : db.prepare(declSql).all(symbol)) as SymbolDeclaration[],
       references: (path
         ? db.prepare(refSql).all(symbol, path)
         : db.prepare(refSql).all(symbol)) as SymbolReference[],
@@ -268,7 +309,16 @@ function looksLikeFilePath(arg: string): boolean {
 export function dependencyPath(db: Database.Database, a: string, b: string): DependencyPath {
   const notes: string[] = [];
   const endpoint = (arg: string): string[] => {
-    if (!looksLikeFilePath(arg)) return filesOfSymbol(db, arg);
+    if (!looksLikeFilePath(arg)) {
+      const files = filesOfSymbol(db, arg);
+      if (files.length === 0) {
+        notes.push(
+          `"${arg}" is not an indexed symbol (only top-level class/function/interface/type/const ` +
+            `declarations are), so no path was searched. Pass a file path instead.`
+        );
+      }
+      return files;
+    }
     const { resolved, candidates } = resolveIndexedPath(db, arg);
     if (resolved) return [resolved];
     notes.push(
@@ -325,7 +375,16 @@ export function dependencyPath(db: Database.Database, a: string, b: string): Dep
     }
   }
 
-  return withAmbiguity({ found: false, chain: [] });
+  return withAmbiguity({
+    found: false,
+    chain: [],
+    files_searched: visited.size,
+    note:
+      `No import path from ${fileA} to ${fileB}. The search was exhaustive: it followed every ` +
+      `static import and re-export (type-only included) from ${fileA} and reached ${visited.size} ` +
+      `file(s), none of which is ${fileB}. Reading files will not find a path this missed - only a ` +
+      `dynamic import() or a require() inside a function would, and neither is an import edge.`,
+  });
 }
 
 export interface CircularDependency {

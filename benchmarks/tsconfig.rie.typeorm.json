@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "declaration": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "outDir": "build/compiled",
+    "resolveJsonModule": true,
+    "strictFunctionTypes": false,
+    "strictPropertyInitialization": false,
+    "stripInternal": true,
+    "useDefineForClassFields": false,
+    "useUnknownInCatchVariables": false
+  },
+  "include": ["src"],
+  "exclude": ["build", "docs", "node_modules", "packages", "playground", "temp"]
+}

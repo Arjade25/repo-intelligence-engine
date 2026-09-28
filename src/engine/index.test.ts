@@ -40,20 +40,32 @@ describe("engine queries (fixtures/sample-repo)", () => {
 
   it("find_module locates a known class at the correct file:line", () => {
     // Circle is declared at line 7 of shapes.ts (traced by hand).
-    expect(findModule(db, "Circle")).toEqual([
-      { name: "Circle", kind: "class", file_path: shapesTs, line_start: 7 },
-    ]);
+    expect(findModule(db, "Circle")).toEqual({
+      symbol_indexed: true,
+      declarations: [{ name: "Circle", kind: "class", file_path: shapesTs, line_start: 7 }],
+    });
   });
 
   it("find_module locates a known function at the correct file:line", () => {
     // add() is declared at line 1 of mathUtils.ts.
-    expect(findModule(db, "add")).toEqual([
-      { name: "add", kind: "function", file_path: mathUtilsTs, line_start: 1 },
-    ]);
+    expect(findModule(db, "add")).toEqual({
+      symbol_indexed: true,
+      declarations: [{ name: "add", kind: "function", file_path: mathUtilsTs, line_start: 1 }],
+    });
   });
 
-  it("find_module returns nothing for an unknown name", () => {
-    expect(findModule(db, "DoesNotExist")).toEqual([]);
+  it("find_module says explicitly when a name is not indexed, rather than returning a bare []", () => {
+    const result = findModule(db, "DoesNotExist");
+    expect(result.symbol_indexed).toBe(false);
+    expect(result.declarations).toEqual([]);
+    expect(result.note).toMatch(/does NOT mean the name is absent/);
+    expect(result.similar_names).toBeUndefined();
+  });
+
+  it("find_module suggests a case-insensitive match on a miss", () => {
+    const result = findModule(db, "circle");
+    expect(result.symbol_indexed).toBe(false);
+    expect(result.similar_names).toEqual(["Circle"]);
   });
 
   it("find_symbol_references surfaces the barrel that star-re-exports a symbol", () => {
@@ -98,7 +110,17 @@ describe("engine queries (fixtures/sample-repo)", () => {
   it("dependency_path is directional: the reverse (add -> run) is NOT connected", () => {
     // mathUtils.ts has zero outgoing edges (it imports nothing), so there is no
     // directed path back to main.ts even though run -> add is connected.
-    expect(dependencyPath(db, "add", "run")).toEqual({ found: false, chain: [] });
+    const result = dependencyPath(db, "add", "run");
+    expect(result).toMatchObject({ found: false, chain: [], files_searched: 1 });
+  });
+
+  it("dependency_path says how much it searched when no path exists", () => {
+    // index.ts reaches itself, mathUtils.ts and shapes.ts - never main.ts.
+    const result = dependencyPath(db, "src/index.ts", "run");
+    expect(result.found).toBe(false);
+    expect(result.files_searched).toBe(3);
+    expect(result.note).toMatch(/^No import path from .*index\.ts to .*main\.ts\. The search was exhaustive/);
+    expect(result.note).toContain("reached 3 file(s)");
   });
 
   it("dependency_path returns a trivial one-file chain for symbols in the same file", () => {
@@ -106,7 +128,10 @@ describe("engine queries (fixtures/sample-repo)", () => {
   });
 
   it("dependency_path returns not-found for an unknown symbol", () => {
-    expect(dependencyPath(db, "DoesNotExist", "add")).toEqual({ found: false, chain: [] });
+    const result = dependencyPath(db, "DoesNotExist", "add");
+    expect(result).toMatchObject({ found: false, chain: [] });
+    expect(result.files_searched).toBeUndefined(); // nothing was searched
+    expect(result.note).toContain('"DoesNotExist" is not an indexed symbol');
   });
 
   it("dependency_path accepts file paths at either end, including a symbol-less barrel", () => {

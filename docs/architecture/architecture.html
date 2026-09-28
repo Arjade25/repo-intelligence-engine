@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RIE Architecture</title>
+<style>
+:root{
+  --bg:#fbfaf7;--fg:#1d1f23;--muted:#5f6670;--surface:#ffffff;--line:#c3c7cd;
+  --lane1:#edf2fa;--lane2:#f7f0e3;--a1:#2f6fd0;--a2:#a86200;--x:#8a3fc7;--ok:#2e7d32;--warn:#b3261e;
+  --code:#f0eee9;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16181c;--fg:#e7e9ec;--muted:#a0a6ae;--surface:#1f2227;--line:#434a54;
+    --lane1:#1a2332;--lane2:#29221a;--a1:#72a5ff;--a2:#e3a445;--x:#c690f2;--ok:#80c783;--warn:#ff8a80;
+    --code:#262a30;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16181c;--fg:#e7e9ec;--muted:#a0a6ae;--surface:#1f2227;--line:#434a54;
+  --lane1:#1a2332;--lane2:#29221a;--a1:#72a5ff;--a2:#e3a445;--x:#c690f2;--ok:#80c783;--warn:#ff8a80;
+  --code:#262a30;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:26px;margin:0 0 4px}
+h2{font-size:19px;margin:40px 0 10px;padding-top:8px;border-top:1px solid var(--line)}
+h3{font-size:16px;margin:22px 0 6px}
+p,li{max-width:78ch}
+.sub{color:var(--muted);margin:0 0 18px}
+code{font:13px ui-monospace,"Cascadia Mono",Consolas,monospace;background:var(--code);padding:1px 5px;border-radius:4px}
+a{color:var(--a1)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+figure{margin:0}
+figcaption{color:var(--muted);font-size:14px;margin:8px 2px 0}
+svg.dia{display:block;width:100%;min-width:1040px;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:13px;color:var(--muted);margin:10px 2px 0}
+.legend svg{vertical-align:middle;margin-right:6px}
+.callouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.card{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:var(--surface)}
+.card h3{margin-top:0}
+.num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--x);color:var(--bg);font-weight:700;font-size:13px;margin-right:6px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+.tw{overflow-x:auto}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600}
+td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ok{color:var(--ok);font-weight:600}
+.fix{color:var(--warn);font-weight:600}
+.win{font-weight:700}
+.note{color:var(--muted);font-size:14px}
+
+/* SVG */
+.lane1{fill:var(--lane1)}.lane2{fill:var(--lane2)}
+.box{fill:var(--surface);stroke:var(--line);stroke-width:1}
+.grp{fill:none;stroke:var(--muted);stroke-width:1;stroke-dasharray:4 3}
+.hl1{stroke:var(--a1);stroke-width:1.6}
+.hl2{stroke:var(--a2);stroke-width:1.6}
+.hlx{stroke:var(--x);stroke-width:1.6}
+.t{font:12px system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--fg)}
+.b{font-weight:650}
+.m{font:11.5px ui-monospace,"Cascadia Mono",Consolas,monospace;fill:var(--fg)}
+.s{font:11px system-ui,-apple-system,"Segoe UI",sans-serif;fill:var(--muted)}
+.lane-t{font:700 12.5px system-ui,sans-serif;letter-spacing:.06em;fill:var(--muted)}
+.lbl{font:11px system-ui,sans-serif;fill:var(--muted);paint-order:stroke;stroke:var(--bg);stroke-width:3px}
+.lblx{font:600 11px system-ui,sans-serif;fill:var(--x);paint-order:stroke;stroke:var(--bg);stroke-width:3px}
+.warnt{font:italic 11px system-ui,sans-serif;fill:var(--warn)}
+.f1,.f2,.fx{fill:none;stroke-width:2;stroke-dasharray:7 5;animation:flow .9s linear infinite}
+.f1{stroke:var(--a1)}.f2{stroke:var(--a2)}.fx{stroke:var(--x)}
+.call{fill:none;stroke:var(--muted);stroke-width:1.4;stroke-dasharray:3 4}
+.xs{fill:none;stroke:var(--x);stroke-width:1.6;stroke-dasharray:3 4}
+.xd{fill:none;stroke:var(--x);stroke-width:1.3;stroke-dasharray:1 3}
+.mk1{fill:var(--a1)}.mk2{fill:var(--a2)}.mkx{fill:var(--x)}.mkc{fill:var(--muted)}
+.badge{fill:var(--x)}.badge-t{font:700 12px system-ui,sans-serif;fill:var(--bg)}
+@keyframes flow{to{stroke-dashoffset:-12}}
+@media (prefers-reduced-motion: reduce){.f1,.f2,.fx{animation:none}}
+</style>
+</head>
+<body>
+<main>
+<h1>Repository Intelligence Engine — architecture</h1>
+<p class="sub">Drawn from the source of <code>repo-intelligence-engine</code> at commit <code>8025afa</code>, which merges PR #2 (<code>nest-resolution-and-taskgen-fixes</code>). Read on 2026-09-28. Every box is labelled with the file that implements it. Companion page: <a href="assisted-run-sequence.html">sequence of one assisted benchmark run</a>.</p>
+
+<figure>
+<div class="scroll">
+<svg class="dia" viewBox="0 0 1400 960" role="img" aria-label="Two lanes. Engine lane: a TypeScript repo is parsed by src/indexer (ts.Program for symbols and edges, erasure.ts for type-only edges, resolution.ts to report unresolvable internal imports, ts.LanguageService for references) into SQLite tables symbols, edges and references_, queried by pure functions in src/engine/index.ts, exposed through the thin adapter src/mcp-server/index.ts to Claude Code. Benchmark lane: pinned TypeORM and nest targets feed benchmarks/oracle (real tsc emit plus an independent Tarjan), the only source of ground truth for benchmarks/taskgen, which calls resolution.ts only to reject an unresolvable tsconfig. Generated tasks run through benchmarks/harness as fresh headless Claude Code sessions, whose transcripts are parsed, graded against each task's expected answer, summarized and written to benchmarks/results/harness. harness/cli.ts, run.ts and oracle/compare.ts call openDb and reindex from src; the rie arm reaches the engine through the MCP server.">
+<defs>
+  <marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk1" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk2" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="arx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mkx" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="arc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mkc" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+
+<!-- ================= LANE 1 ================= -->
+<rect class="lane1" x="10" y="10" width="1380" height="472" rx="12"/>
+<text class="lane-t" x="26" y="32">LANE 1 — THE ENGINE (THE PRODUCT) · src/</text>
+
+<path class="call" d="M900 60 V46 H350 V58" marker-end="url(#arc)"/>
+<text class="lbl" x="625" y="42" text-anchor="middle">reindex() → indexRepository() + indexReferences(), one db.transaction</text>
+
+<!-- A: input -->
+<rect class="box" x="24" y="190" width="136" height="120" rx="8"/>
+<text class="s" x="92" y="212" text-anchor="middle">INPUT</text>
+<text class="t b" x="92" y="234" text-anchor="middle">TypeScript repo</text>
+<text class="m" x="92" y="256" text-anchor="middle">.ts / .tsx</text>
+<text class="m" x="92" y="274" text-anchor="middle">tsconfig.json</text>
+<text class="s" x="92" y="294" text-anchor="middle">(paths aliases kept)</text>
+<path class="f1" d="M160 250 H198" marker-end="url(#ar1)"/>
+<text class="lbl" x="179" y="242" text-anchor="middle">parse</text>
+
+<!-- B: indexer -->
+<rect class="grp" x="200" y="60" width="300" height="380" rx="10"/>
+<text class="m b" x="214" y="80">src/indexer/</text>
+
+<rect class="box" x="215" y="90" width="270" height="80" rx="6"/>
+<text class="t b" x="227" y="109">index.ts — ts.Program (batch)</text>
+<text class="t" x="227" y="127">pass 1: top-level decls → symbols</text>
+<text class="t" x="227" y="145">pass 2: imports / re-exports → edges</text>
+<text class="t" x="227" y="163">ts.resolveModuleName → absolute to_file</text>
+
+<rect class="box" x="215" y="178" width="270" height="58" rx="6"/>
+<text class="t b" x="227" y="196">erasure.ts — erased at emit?</text>
+<text class="t" x="227" y="213">value-position + decorator-metadata</text>
+<text class="t" x="227" y="229">→ index.ts sets is_type_only per edge</text>
+
+<rect class="box hlx" x="215" y="244" width="270" height="74" rx="6"/>
+<text class="t b" x="227" y="263">resolution.ts — input validation</text>
+<text class="t" x="227" y="280">internal imports that don't resolve,</text>
+<text class="t" x="227" y="296">in the compiler's own ESM/CJS mode</text>
+<text class="m" x="227" y="312">→ unresolved_internal_imports</text>
+
+<rect class="box" x="215" y="326" width="270" height="58" rx="6"/>
+<text class="t b" x="227" y="344">references.ts — ts.LanguageService</text>
+<text class="t" x="227" y="361">findReferences at each decl name</text>
+<text class="t" x="227" y="377">→ references_ (decl site excluded)</text>
+
+<rect class="box" x="215" y="392" width="270" height="38" rx="6"/>
+<text class="m" x="227" y="410">cli.ts · npm run index</text>
+<text class="s" x="227" y="424">prints a WARNING if the index is partial</text>
+
+<!-- C: storage -->
+<rect class="grp" x="540" y="60" width="270" height="380" rx="10"/>
+<text class="m b" x="554" y="80">src/storage/db.ts + schema.sql</text>
+<text class="s" x="554" y="97">SQLite · better-sqlite3 · WAL · busy_timeout</text>
+
+<rect class="box" x="555" y="106" width="240" height="72" rx="6"/>
+<text class="m b" x="567" y="125">symbols</text>
+<text class="m" x="567" y="145">id · name · kind</text>
+<text class="m" x="567" y="163">file_path · line_start · line_end</text>
+
+<rect class="box hl1" x="555" y="188" width="240" height="112" rx="6"/>
+<text class="m b" x="567" y="207">edges  <tspan class="s">file-level</tspan></text>
+<text class="m" x="567" y="226">from_file → to_file (resolved)</text>
+<text class="m" x="567" y="245">to_symbol_id  NULL unless named</text>
+<text class="m" x="567" y="264">edge_type imports|reexport_star</text>
+<text class="m" x="567" y="283">is_type_only  0 runtime · 1 erased</text>
+<circle class="badge" cx="795" cy="188" r="11"/><text class="badge-t" x="795" y="192.5" text-anchor="middle">1</text>
+
+<rect class="box" x="555" y="310" width="240" height="70" rx="6"/>
+<text class="m b" x="567" y="329">references_</text>
+<text class="m" x="567" y="348">symbol_id → symbols.id</text>
+<text class="m" x="567" y="366">used_in_file · line</text>
+<text class="s" x="567" y="410">openDb(): applies schema + migrate()</text>
+<text class="s" x="567" y="426">unresolved imports are returned, not stored</text>
+
+<!-- B -> C -->
+<path class="f1" d="M485 130 H553" marker-end="url(#ar1)"/>
+<text class="lbl" x="519" y="123" text-anchor="middle">INSERT</text>
+<path class="f1" d="M485 160 H512 V236 H553" marker-end="url(#ar1)"/>
+<path class="f1" d="M485 355 H512 V345 H553" marker-end="url(#ar1)"/>
+<text class="lbl" x="519" y="336" text-anchor="middle">INSERT</text>
+
+<!-- D: engine -->
+<rect class="grp" x="850" y="60" width="260" height="380" rx="10"/>
+<text class="m b" x="864" y="80">src/engine/index.ts</text>
+<text class="s" x="864" y="97">pure functions over the index</text>
+
+<rect class="box" x="865" y="106" width="230" height="38" rx="5"/>
+<text class="m b" x="875" y="121">find_module(name)</text>
+<text class="s" x="875" y="137">symbols WHERE name = ?</text>
+<rect class="box" x="865" y="150" width="230" height="38" rx="5"/>
+<text class="m b" x="875" y="165">find_related_files(path)</text>
+<text class="s" x="875" y="181">edges, both directions; suffix match</text>
+<rect class="box" x="865" y="194" width="230" height="38" rx="5"/>
+<text class="m b" x="875" y="209">find_symbol_references(sym)</text>
+<text class="s" x="875" y="225">references_ ⋈ symbols + reexport_star</text>
+<rect class="box hl1" x="865" y="238" width="230" height="52" rx="5"/>
+<text class="m b" x="875" y="253">dependency_path(a, b)</text>
+<text class="s" x="875" y="269">each end: symbol name OR file path</text>
+<text class="s" x="875" y="284">BFS over all edges (type-only too)</text>
+<rect class="box" x="865" y="296" width="230" height="38" rx="5"/>
+<text class="m b" x="875" y="311">find_circular_dependencies()</text>
+<text class="s" x="875" y="327">Tarjan SCCs · is_type_only = 0 default</text>
+<rect class="box hlx" x="865" y="340" width="230" height="52" rx="5"/>
+<text class="m b" x="875" y="355">reindex(tsconfig)</text>
+<text class="s" x="875" y="371">full rebuild; no incremental mode</text>
+<text class="s" x="875" y="386">returns unresolved_internal_imports</text>
+
+<path class="f1" d="M810 224 H848" marker-end="url(#ar1)"/>
+<text class="lbl" x="829" y="216" text-anchor="middle">SELECT</text>
+
+<!-- E: MCP server -->
+<rect class="box hl1" x="1150" y="60" width="220" height="222" rx="8"/>
+<text class="m b" x="1162" y="80">src/mcp-server/index.ts</text>
+<text class="t" x="1162" y="103">createServer(db, tsconfigPath)</text>
+<text class="t" x="1162" y="122">6 × server.tool(name, zod, fn)</text>
+<text class="t" x="1162" y="141">parse args → engine fn → JSON</text>
+<text class="t b" x="1162" y="160">no query logic here</text>
+<text class="t" x="1162" y="182">StdioServerTransport</text>
+<text class="m" x="1162" y="201">env RIE_DB, RIE_TSCONFIG</text>
+<text class="m" x="1162" y="220">bin rie-mcp → dist/</text>
+<text class="s" x="1162" y="243">reindex tool: adds a warning when</text>
+<text class="s" x="1162" y="258">partial; its path arg is ignored</text>
+<circle class="badge" cx="1370" cy="60" r="11"/><text class="badge-t" x="1370" y="64.5" text-anchor="middle">2</text>
+<path class="f1" d="M1110 140 H1148" marker-end="url(#ar1)"/>
+<text class="lbl" x="1129" y="132" text-anchor="middle">result</text>
+
+<!-- F: client -->
+<rect class="box" x="1150" y="322" width="220" height="94" rx="8"/>
+<text class="t b" x="1162" y="342">Claude Code / any MCP client</text>
+<text class="m" x="1162" y="362">.mcp.json → node</text>
+<text class="m" x="1162" y="380">dist/mcp-server/index.js</text>
+<text class="m" x="1162" y="400">tools: mcp__rie__*</text>
+<path class="call" d="M1225 322 V284" marker-end="url(#arc)"/>
+<text class="lbl" x="1219" y="307" text-anchor="end">tools/call</text>
+<path class="f1" d="M1295 284 V320" marker-end="url(#ar1)"/>
+<text class="lbl" x="1301" y="307">JSON over stdio</text>
+
+<!-- G: direct callers -->
+<rect class="box" x="540" y="446" width="270" height="30" rx="6"/>
+<text class="t" x="552" y="465"><tspan class="m">*.test.ts · indexer/cli.ts</tspan> → engine/, no MCP</text>
+<path class="call" d="M810 461 H975 V442" marker-end="url(#arc)"/>
+
+<!-- ================= CROSS-LANE ================= -->
+<!-- taskgen -> resolution.ts (input check only) -->
+<path class="xd" d="M700 582 V494 H527 V281 H487" marker-end="url(#arx)"/>
+<text class="lblx" x="614" y="490" text-anchor="middle">findUnresolvedInternalImports() — taskgen input check, no index</text>
+<!-- openDb + reindex bus -->
+<path class="xs" d="M345 582 V520 H1060 V443" marker-end="url(#arx)"/>
+<path class="xs" d="M900 582 V520"/>
+<text class="lblx" x="480" y="515" text-anchor="middle">openDb() + reindex() — oracle/compare.ts · harness/cli.ts · run.ts</text>
+<!-- assisted arm -->
+<path class="fx" d="M1040 582 V532 H1260 V418" marker-end="url(#arx)"/>
+<text class="lblx" x="1252" y="500" text-anchor="end">rie / assisted arm only:</text>
+<text class="lblx" x="1252" y="514" text-anchor="end">--mcp-config spawns the MCP server</text>
+
+<!-- ================= LANE 2 ================= -->
+<rect class="lane2" x="10" y="540" width="1380" height="410" rx="12"/>
+<g transform="translate(0 42)">
+<text class="lane-t" x="26" y="520">LANE 2 — BENCHMARK PIPELINE · benchmarks/</text>
+
+<!-- P: pinned targets -->
+<rect class="box" x="24" y="540" width="166" height="170" rx="8"/>
+<text class="t b" x="36" y="560">Pinned targets</text>
+<text class="m" x="36" y="582">tasks.json</text>
+<text class="t" x="36" y="599">TypeORM @ 04ff4dae</text>
+<text class="m" x="36" y="621">tasks-nest.json</text>
+<text class="t" x="36" y="638">nest @ 40d07dc6</text>
+<text class="s" x="36" y="655">taskgen.min_path = 3</text>
+<text class="m" x="36" y="675">tsconfig.rie.nest.json</text>
+<text class="s" x="36" y="692">clone → target-repo*/ (gitignored)</text>
+
+<!-- O: oracle -->
+<rect class="grp" x="220" y="540" width="250" height="172" rx="10"/>
+<text class="m b" x="234" y="560">benchmarks/oracle/</text>
+<rect class="box hl2" x="235" y="570" width="220" height="50" rx="6"/>
+<text class="t b" x="245" y="589">emitted-edges.ts</text>
+<text class="t" x="245" y="608">real tsc emit → surviving imports</text>
+<rect class="box hl2" x="235" y="626" width="220" height="34" rx="6"/>
+<text class="t" x="245" y="647"><tspan class="b">tarjan.ts</tspan> — independent SCCs</text>
+<rect class="box" x="235" y="666" width="220" height="40" rx="6"/>
+<text class="t" x="245" y="682"><tspan class="b">compare.ts</tspan> · npm run oracle</text>
+<text class="s" x="245" y="698">diff RIE runtime edges vs emit</text>
+<text class="warnt" x="345" y="728" text-anchor="middle">emitted-edges + tarjan import nothing from src/</text>
+<path class="f2" d="M190 596 H233" marker-end="url(#ar2)"/>
+<text class="lbl" x="211" y="589" text-anchor="middle">tsconfig</text>
+
+<!-- T: taskgen -->
+<rect class="grp" x="500" y="540" width="250" height="226" rx="10"/>
+<text class="m b" x="514" y="560">benchmarks/taskgen/</text>
+<rect class="box" x="515" y="570" width="220" height="78" rx="6"/>
+<text class="t b" x="525" y="588">generate.ts — generateTasks()</text>
+<text class="t" x="525" y="605">cycle_trace · <tspan class="b">dependency_path</tspan></text>
+<text class="t" x="525" y="621">runtime_type_trap · change_impact</text>
+<text class="s" x="525" y="638">seed · min-path · min-hops · min-closure</text>
+<rect class="box" x="515" y="654" width="220" height="38" rx="6"/>
+<text class="t" x="525" y="670"><tspan class="b">impact.ts</tspan> — ImpactOracle</text>
+<text class="s" x="525" y="685">un-export in memory, re-type-check</text>
+<rect class="box" x="515" y="698" width="220" height="26" rx="6"/>
+<text class="t" x="525" y="715">graph.ts (BFS, depths) · validators.ts</text>
+<rect class="box" x="515" y="730" width="220" height="30" rx="6"/>
+<text class="m" x="525" y="749">cli.ts → generated/&lt;prefix&gt;.json</text>
+<text class="warnt" x="625" y="782" text-anchor="middle">truth never comes from the RIE index</text>
+<path class="f2" d="M455 600 H513" marker-end="url(#ar2)"/>
+<text class="lbl" x="484" y="592" text-anchor="middle">truth</text>
+<path class="call" d="M107 540 V530 H625 V538" marker-end="url(#arc)"/>
+<text class="lbl" x="440" y="533" text-anchor="middle">--config: repo pin, tsconfig, taskgen params</text>
+
+<!-- H: harness -->
+<rect class="grp" x="780" y="540" width="280" height="268" rx="10"/>
+<text class="m b" x="794" y="560">benchmarks/harness/</text>
+<rect class="box" x="795" y="570" width="250" height="80" rx="6"/>
+<text class="t b" x="805" y="588">cli.ts — npm run harness</text>
+<text class="t" x="805" y="606">build · openDb + reindex (rie arm)</text>
+<text class="t" x="805" y="623">refuses a partial index</text>
+<text class="t" x="805" y="640">&lt;arm&gt;.mcp.json from tools.json</text>
+<rect class="box" x="795" y="656" width="250" height="46" rx="6"/>
+<text class="t b" x="805" y="674">bench.ts — runBenchmark()</text>
+<text class="t" x="805" y="692">task × arm × run; arm order rotates</text>
+<rect class="box" x="795" y="708" width="250" height="56" rx="6"/>
+<text class="t b" x="805" y="726">claude.ts — runClaude()</text>
+<text class="t" x="805" y="743">claude -p, fresh --session-id</text>
+<text class="m" x="805" y="758">--tools Read,Grep,Glob</text>
+<rect class="box hl2" x="795" y="770" width="250" height="32" rx="6"/>
+<text class="t" x="805" y="790"><tspan class="b">baseline</tspan>: no MCP │ <tspan class="b">rie</tspan>: + --mcp-config</text>
+<path class="f2" d="M735 745 H760 V610 H793" marker-end="url(#ar2)"/>
+<text class="lbl" x="766" y="678" transform="rotate(-90 766 678)" text-anchor="middle">tasks json</text>
+
+<!-- M: metrics -->
+<rect class="grp" x="1090" y="540" width="280" height="268" rx="10"/>
+<text class="t b" x="1104" y="560">metrics → results</text>
+<rect class="box" x="1105" y="570" width="250" height="54" rx="6"/>
+<text class="t b" x="1115" y="588">claude.ts — parseTranscript()</text>
+<text class="m" x="1115" y="604">~/.claude/projects/*/&lt;id&gt;.jsonl</text>
+<text class="t" x="1115" y="619">→ tool_use counts · token usage</text>
+<rect class="box" x="1105" y="632" width="250" height="70" rx="6"/>
+<text class="t b" x="1115" y="650">grade.ts — gradeAnswer()</text>
+<text class="t" x="1115" y="666">last ```json block → validators.ts</text>
+<text class="s" x="1115" y="681">cycle · import path · trap · impact F1</text>
+<text class="t" x="1115" y="696">vs task.expected (oracle-built)</text>
+<rect class="box" x="1105" y="710" width="250" height="46" rx="6"/>
+<text class="t b" x="1115" y="728">stats.ts + bench.summarize()</text>
+<text class="t" x="1115" y="745">median · IQR · tokens per correct</text>
+<rect class="box" x="1105" y="764" width="250" height="36" rx="6"/>
+<text class="m" x="1115" y="786">results/harness/*.json + .tasks</text>
+<path class="f2" d="M1045 734 H1068 V597 H1103" marker-end="url(#ar2)"/>
+<text class="lbl" x="1074" y="665" transform="rotate(-90 1074 665)" text-anchor="middle">final_text + session</text>
+<path class="f2" d="M1340 624 V630" marker-end="url(#ar2)"/>
+<path class="f2" d="M1340 702 V708" marker-end="url(#ar2)"/>
+<path class="f2" d="M1340 756 V762" marker-end="url(#ar2)"/>
+
+<!-- R: run.ts -->
+<rect class="box" x="220" y="822" width="840" height="72" rx="8"/>
+<text class="t b" x="234" y="842">benchmarks/run.ts · npm run bench — hand-written tasks (TypeORM 9, nest 4)</text>
+<text class="t" x="234" y="862">tasks + oracle notes from tasks.json / tasks-nest.json · arms baseline | assisted · same runClaude()</text>
+<text class="t" x="234" y="881">also openDb + reindex · grading = located_oracle substring check · own median() → results/&lt;repo&gt;-&lt;ts&gt;.json</text>
+<path class="f2" d="M60 710 V858 H218" marker-end="url(#ar2)"/>
+<text class="lbl" x="140" y="852" text-anchor="middle">tasks + oracle</text>
+<path class="call" d="M920 822 V810" marker-end="url(#arc)"/>
+</g>
+</svg>
+</div>
+<figcaption>Solid animated lines show which way data moves: repo → index → query → client in lane 1, and targets → truth → tasks → runs → grades → results in lane 2. Dashed grey lines are calls that move no data. Purple marks the three places lane 2 reaches into <code>src/</code>. The dotted purple line is taskgen's input check, which never touches the index. Purple-outlined boxes are new in the PR #2 merge. Numbered badges point to the design decisions below.</figcaption>
+<div class="legend">
+  <span><svg width="34" height="10"><path class="f1" d="M0 5H34"/></svg>engine data flow</span>
+  <span><svg width="34" height="10"><path class="f2" d="M0 5H34"/></svg>benchmark data flow</span>
+  <span><svg width="34" height="10"><path class="xs" d="M0 5H34"/></svg>cross-lane call into src/</span>
+  <span><svg width="34" height="10"><path class="xd" d="M0 5H34"/></svg>input check only (no index)</span>
+  <span><svg width="34" height="10"><path class="call" d="M0 5H34"/></svg>control call (no data)</span>
+</div>
+</figure>
+
+<h2>Two design decisions</h2>
+<div class="callouts">
+  <div class="card">
+    <h3><span class="num">1</span>Edges are file-level, not symbol-level</h3>
+    <p>An import statement belongs to a file, not to a symbol. So <code>edges</code> stores <code>from_file → to_file</code>, with <code>to_file</code> already resolved to an absolute path at index time. <code>to_symbol_id</code> is filled in only for named imports. Default, namespace and side-effect imports, and <code>export *</code>, get a single edge with <code>NULL</code> there. Star re-exports are tagged <code>reexport_star</code>.</p>
+    <p>This keeps every query a single table walk. <code>dependency_path</code> now takes a symbol name <em>or</em> a file path at either end. A file argument resolves straight to a node, which is how a symbol-less barrel like <code>index.ts</code> became nameable. It then runs a BFS over <code>edges</code>. <code>find_circular_dependencies</code> runs Tarjan over <code>DISTINCT from_file, to_file</code>, filtered to <code>is_type_only = 0</code>.</p>
+    <p class="note">Where it lives: <code>src/storage/schema.sql</code>, <code>src/indexer/index.ts</code> (<code>extractEdges</code>), and <code>src/engine/index.ts</code> (<code>dependencyPath</code>, <code>looksLikeFilePath</code>, <code>findCircularDependencies</code>).</p>
+  </div>
+  <div class="card">
+    <h3><span class="num">2</span>MCP is an adapter, not the product</h3>
+    <p>Each <code>server.tool()</code> handler in <code>src/mcp-server/index.ts</code> passes zod-validated arguments to the matching function in <code>src/engine/index.ts</code> and returns <code>JSON.stringify</code> of the result. The only extra work any handler does is presentational: <code>reindex</code> formats the engine's <code>unresolved_internal_imports</code> into a <code>warning</code> string using <code>describeUnresolved</code>.</p>
+    <p>Because the engine stands alone, the CLI, all 146 tests, <code>oracle/compare.ts</code> and the harness setup code call it directly. <code>src/mcp-server/index.test.ts</code> connects a real MCP client over <code>InMemoryTransport</code> and asserts <code>toEqual</code> between each MCP result and the direct engine call. In the benchmark, the only difference between the two arms is the <code>--mcp-config</code> flag.</p>
+    <p class="note">Where it lives: <code>src/mcp-server/index.ts</code>, <code>src/mcp-server/index.test.ts</code>, and <code>benchmarks/harness/claude.ts</code> (<code>claudeArgs</code>).</p>
+  </div>
+</div>
+
+<h2>What PR #2 changed in this picture</h2>
+<ul>
+  <li><b><code>src/indexer/resolution.ts</code> (new).</b> It finds internal imports (relative, or matching a <code>paths</code> alias) that the compiler can't resolve, using the per-import ESM/CJS mode the compiler itself uses. <code>indexRepository</code> and <code>reindex</code> now return them instead of silently dropping the edges. On nest, 556 cross-package imports failed this way, because directory-style aliases never resolve in <code>"type": "module"</code> packages.</li>
+  <li><b>Callers act on the partial-index signal.</b> <code>indexer/cli.ts</code> prints a warning, the MCP <code>reindex</code> tool adds a <code>warning</code> field, <code>harness/cli.ts</code> refuses to benchmark, and <code>taskgen/generate.ts</code> refuses to generate unless <code>--allow-unresolved</code> is passed.</li>
+  <li><b><code>dependency_path</code> accepts file paths.</b> An argument containing a slash or a source-file extension is treated as a file.</li>
+  <li><b>New task category, <code>dependency_path</code>.</b> Tasks are generated from source edges in <code>generate.ts</code> using <code>graph.ts</code>'s <code>bfsDepths</code>, and graded by <code>validators.ts</code>'s <code>validateImportPath</code>, which accepts any valid chain or <code>null</code> for "no path". Change-impact tasks that hinge on a broken named re-export are now dropped.</li>
+  <li><b>Recorded results.</b> <code>benchmarks/results/harness/</code> now holds two graded runs, each next to the exact task set it used.</li>
+</ul>
+
+<h2>Where the code differs from the original diagram brief</h2>
+<div class="tw"><table>
+<tr><th>Brief said</th><th>Code does</th><th>Evidence</th></tr>
+<tr><td>taskgen uses the engine's index to generate tasks</td><td>Ground truth comes only from <code>oracle/emitted-edges.ts</code>, <code>oracle/tarjan.ts</code> and <code>ImpactOracle</code>. Since PR #2, taskgen imports one thing from <code>src/</code>: <code>resolution.ts</code>, to reject a tsconfig with unresolvable imports. It never opens the index or calls the engine.</td><td><code>taskgen/generate.ts</code> (imports; "never from RIE's index")</td></tr>
+<tr><td>taskgen and harness both call openDb/reindex</td><td>The callers are <code>harness/cli.ts</code>, <code>run.ts</code> and <code>oracle/compare.ts</code>. taskgen is not one of them.</td><td><code>grep "src/" benchmarks/**/*.ts</code></td></tr>
+<tr><td>the oracle is compared against at grading time</td><td><code>grade.ts</code> checks the answer against <code>task.expected</code> using <code>taskgen/validators.ts</code>. The oracle's role ends when the task is generated.</td><td><code>harness/grade.ts</code> (<code>gradeAnswer</code>)</td></tr>
+<tr><td>arms: baseline vs assisted</td><td><code>harness/</code> names its arms from <code>tools.json</code>: <b>baseline</b> and <b>rie</b>. The <b>assisted</b> name belongs to <code>run.ts</code>.</td><td><code>benchmarks/tools.json</code>, <code>run.ts</code> (<code>type Arm</code>)</td></tr>
+<tr><td>one harness pipeline</td><td>There are two: <code>run.ts</code> (hand-written tasks, filename-substring check) and <code>harness/</code> (generated tasks, graded).</td><td><code>benchmarks/run.ts</code>, <code>benchmarks/harness/</code></td></tr>
+<tr><td>edge_type</td><td>Two values: <code>imports</code> and <code>reexport_star</code>. The comment in schema.sql still says "'imports' for v1".</td><td><code>indexer/index.ts</code> (<code>type EdgeType</code>)</td></tr>
+</table></div>
+
+<h2>Testing results</h2>
+<h3>Unit and integration tests — 146 / 146 passing</h3>
+<p><code>npx vitest run</code> on the merged code, 2026-09-28: <span class="ok">11 files, 146 tests, 0 failures</span>. The tests run against the checked-in fixture repos under <code>fixtures/</code> (sample, type-only, decorator-metadata, verbatim-module-syntax, esm-alias, taskgen).</p>
+<div class="tw"><table>
+<tr><th>Test file</th><th>What it covers</th><th class="n">Tests</th></tr>
+<tr><td><code>src/engine/index.test.ts</code></td><td>All 6 queries, path resolution, ambiguity, file-path <code>dependency_path</code>, runtime vs type-only cycles</td><td class="n">39</td></tr>
+<tr><td><code>src/indexer/index.test.ts</code></td><td>Symbols, file-level edges, NULL-symbol edges, erasure per edge</td><td class="n">25</td></tr>
+<tr><td><code>benchmarks/taskgen/generate.test.ts</code></td><td>All four categories, min-path and min-hops, the broken re-export filter, determinism for a given seed</td><td class="n">21</td></tr>
+<tr><td><code>benchmarks/oracle/emitted-edges.test.ts</code></td><td>Emit-based ground truth, including dynamic <code>import()</code> and NodeNext</td><td class="n">19</td></tr>
+<tr><td><code>benchmarks/harness/harness.test.ts</code></td><td>Prompt building, answer parsing, grading, summaries (stub runner)</td><td class="n">10</td></tr>
+<tr><td><code>src/indexer/erasure.test.ts</code></td><td>Value-position analysis, <code>verbatimModuleSyntax</code> gate</td><td class="n">8</td></tr>
+<tr><td><code>src/mcp-server/index.test.ts</code></td><td>For each tool, the MCP result <code>toEqual</code>s the direct engine result</td><td class="n">8</td></tr>
+<tr><td><code>benchmarks/oracle/tarjan.test.ts</code></td><td>Independent SCC implementation</td><td class="n">6</td></tr>
+<tr><td><code>src/indexer/references.test.ts</code></td><td>findReferences union across alias groups</td><td class="n">4</td></tr>
+<tr><td><code>src/indexer/resolution.test.ts</code></td><td>ESM directory alias and missing import flagged, surfaced by <code>reindex</code></td><td class="n">4</td></tr>
+<tr><td><code>src/engine/reindex.test.ts</code></td><td>Full rebuild is idempotent and reflects added or removed files</td><td class="n">2</td></tr>
+</table></div>
+
+<h3>Generated, graded tasks on nest (<code>npm run harness</code>, <code>benchmarks/results/harness/</code>)</h3>
+<p>5 runs per arm per task, with <code>claude-opus-5-5</code> on every run and 0 crashed sessions.</p>
+<div class="tw"><table>
+<tr><th>Category</th><th class="n">Tasks</th><th class="n">Correct (baseline / rie)</th><th class="n">Tokens per correct (baseline → rie)</th><th class="n">Median calls</th><th class="n">rie runs that used RIE</th></tr>
+<tr><td>cycle_trace</td><td class="n">8</td><td class="n">40/40 · 40/40</td><td class="n">60,469 → 70,881</td><td class="n">5 → 5</td><td class="n">40/40</td></tr>
+<tr><td>runtime_type_trap</td><td class="n">10</td><td class="n">49/50 · 50/50</td><td class="n">91,955 → 92,941</td><td class="n">5 → 5</td><td class="n">31/50</td></tr>
+<tr><td>change_impact</td><td class="n">9</td><td class="n">44/45 · 44/45</td><td class="n">149,559 → 173,021</td><td class="n">6 → 6</td><td class="n">13/45</td></tr>
+<tr><td>dependency_path, path exists</td><td class="n">5</td><td class="n">25/25 · 25/25</td><td class="n win">423,378 → 122,454</td><td class="n">17 → 6</td><td class="n">25/25</td></tr>
+<tr><td>dependency_path, no path</td><td class="n">5</td><td class="n">25/25 · 25/25</td><td class="n">267,059 → 206,076</td><td class="n">12 → 9</td><td class="n">25/25</td></tr>
+</table></div>
+<p class="note">The first three rows are from <code>nest-full-2026-09-27T10-43-36Z.json</code>: tied on accuracy, and the rie arm spends ~11% more per correct answer. The last two are from <code>nest-paths-2026-09-27T14-57-18Z.json</code>: ~2.1× cheaper overall, with half the tool calls.</p>
+
+<h3>Hand-written tasks (<code>npm run bench</code>, <code>benchmarks/results/*.json</code>)</h3>
+<div class="tw"><table>
+<tr><th>Task</th><th class="n">Baseline calls / tokens</th><th class="n">Assisted calls / tokens</th></tr>
+<tr><td>TypeORM · 6 simple lookups (total calls)</td><td class="n">13</td><td class="n win">9</td></tr>
+<tr><td>TypeORM · entity-decorator-references</td><td class="n">6 / 190,226</td><td class="n">5 / 174,330</td></tr>
+<tr><td>TypeORM · 7-hop import path</td><td class="n">21 / 607,413</td><td class="n win">1 / 40,719</td></tr>
+<tr><td>TypeORM · runtime-cycle-check</td><td class="n">22 / 1,242,140</td><td class="n win">1 / 26,661</td></tr>
+<tr><td>nest · injector-impact</td><td class="n win">5 / 82,321</td><td class="n">5 / 120,202</td></tr>
+<tr><td>nest · clientproxy-container-path</td><td class="n">10 / 156,786</td><td class="n win">6 / 79,238</td></tr>
+<tr><td>nest · parseuuidpipe-exposure</td><td class="n win">4 / 40,497</td><td class="n">5 / 68,074</td></tr>
+<tr><td>nest · runtime-cycle-check</td><td class="n">44 / 6,317,943</td><td class="n win">3 / 58,832</td></tr>
+</table></div>
+
+<h2>Verification — every box and arrow checked against the code at 8025afa</h2>
+<div class="tw"><table>
+<tr><th>Element</th><th>Checked against</th><th></th></tr>
+<tr><td>Indexer passes: Program → symbols and edges, LanguageService → references</td><td><code>indexer/index.ts</code> (<code>indexRepository</code>); <code>indexer/references.ts</code></td><td class="ok">✓</td></tr>
+<tr><td>erasure.ts feeds is_type_only</td><td><code>analyzeErasure</code> / <code>reExportHasValueMeaning</code> in <code>extractEdges</code></td><td class="ok">✓</td></tr>
+<tr><td>resolution.ts → unresolved_internal_imports (returned, not stored)</td><td><code>indexRepository</code> returns <code>{ unresolved }</code>; <code>reindex</code> returns <code>ReindexResult</code>; no table added to <code>schema.sql</code></td><td class="ok">✓ new</td></tr>
+<tr><td>indexer/cli.ts warns on a partial index</td><td><code>indexer/cli.ts</code> (<code>describeUnresolved</code>)</td><td class="ok">✓ new</td></tr>
+<tr><td>reindex loop, engine → indexer, one transaction</td><td><code>engine/index.ts</code> (<code>reindex</code>)</td><td class="ok">✓</td></tr>
+<tr><td>Table columns</td><td><code>storage/schema.sql</code>, <code>migrate()</code></td><td class="ok">✓</td></tr>
+<tr><td>dependency_path: symbol or file ends, BFS over all edges</td><td><code>looksLikeFilePath</code>, <code>resolveIndexedPath</code>; neighbour query has no <code>is_type_only</code> filter</td><td class="ok">✓ new</td></tr>
+<tr><td>MCP handlers: parse, call, JSON; reindex warning</td><td><code>mcp-server/index.ts</code></td><td class="ok">✓</td></tr>
+<tr><td>Tests call the engine directly</td><td>The test files listed above</td><td class="ok">✓</td></tr>
+<tr><td>Pinned targets; nest taskgen.min_path = 3; tsconfig.rie.nest.json</td><td><code>tasks-nest.json</code>, <code>benchmarks/tsconfig.rie.nest.json</code></td><td class="ok">✓</td></tr>
+<tr><td>oracle → taskgen (truth)</td><td><code>generate.ts</code> imports <code>computeEmittedEdges</code>, <code>findStronglyConnectedComponents</code></td><td class="ok">✓</td></tr>
+<tr><td>taskgen → resolution.ts (input check only)</td><td><code>generate.ts</code> (<code>findUnresolvedInternalImports</code>, <code>--allow-unresolved</code>)</td><td class="ok">✓ new</td></tr>
+<tr><td>Four task categories</td><td><code>type Task = CycleTraceTask | DependencyPathTask | TrapTask | ImpactTask</code></td><td class="ok">✓ new</td></tr>
+<tr><td>harness: cli → bench → claude; refuses a partial index</td><td><code>harness/cli.ts</code> throws when <code>unresolved_internal_imports</code> is non-empty</td><td class="ok">✓ new</td></tr>
+<tr><td>Arms differ only by --mcp-config</td><td><code>claudeArgs</code></td><td class="ok">✓</td></tr>
+<tr><td>Transcript → metrics → grade → stats → results</td><td><code>parseTranscript</code>, <code>gradeAnswer</code> (now with <code>validateImportPath</code>), <code>summarize</code>, <code>stats.ts</code></td><td class="ok">✓</td></tr>
+<tr><td>results/harness/*.json + .tasks.json</td><td><code>ls benchmarks/results/harness</code></td><td class="ok">✓</td></tr>
+<tr><td>run.ts as a second pipeline</td><td><code>run.ts</code> (<code>runOnce</code>, <code>located_oracle</code>)</td><td class="ok">✓</td></tr>
+<tr><td>Cross-lane openDb/reindex callers</td><td>grep: harness/cli.ts, run.ts, oracle/compare.ts</td><td class="ok">✓</td></tr>
+</table></div>
+
+<h2>README.md status</h2>
+<p>On 2026-09-28 the README was checked line by line against the code at <code>8025afa</code> and brought up to date. Every item previously listed here has been fixed:</p>
+<div class="tw"><table>
+<tr><th>Was out of date</th><th>Now</th></tr>
+<tr><td>ASCII diagram omitted <code>find_circular_dependencies</code>, <code>erasure.ts</code> and <code>resolution.ts</code></td><td class="ok">Added</td></tr>
+<tr><td><code>dependency_path</code> described as "between two symbols"</td><td class="ok">Symbol or file path at each end; BFS covers type-only edges</td></tr>
+<tr><td><code>reindex(path?)</code> implied reindexing part of the repo</td><td class="ok"><code>reindex()</code>; documented that <code>path</code> is ignored and unresolved imports are reported</td></tr>
+<tr><td>Oracle "emits with <code>module: CommonJS</code>"</td><td class="ok">Describes the current method: the repo's own module settings, with both <code>require()</code> and ESM imports scanned</td></tr>
+<tr><td>nest oracle figures predated the alias fix</td><td class="ok">Re-measured with <code>tsconfig.rie.nest.json</code>: 0 unresolved, 2 × 4-file groups, 1,440 agree / 29 safe / 0 hidden. Unchanged.</td></tr>
+<tr><td>"<code>npm run oracle</code> shares no code with the engine"</td><td class="ok">Narrowed to the ground-truth side; <code>compare.ts</code> is named as the importer</td></tr>
+<tr><td><code>.mcp.json</code> pointed at an index that didn't exist</td><td class="ok">"Setting up a benchmark target" gives the clone and index steps</td></tr>
+<tr><td>Missing results: nest hand-written, both harness runs, test suite</td><td class="ok">Added (Benchmark, Test suite, <code>benchmarks/results/README.md</code>)</td></tr>
+<tr><td>No section on unresolved-import detection</td><td class="ok">New "Unresolved imports" section</td></tr>
+<tr><td><code>schema.sql</code> comments: "'imports' for v1", "five tools"</td><td class="ok">Both <code>edge_type</code> values listed; six tools</td></tr>
+</table></div>
+<p class="note">Both targets were re-verified on 2026-09-28:</p>
+<ul class="note">
+  <li><b>nest</b> (with <code>benchmarks/tsconfig.rie.nest.json</code>): 664 files, 1,473 symbols, 3,442 edges, 10,082 references.</li>
+  <li><b>TypeORM</b> (with the reconstructed, now-committed <code>benchmarks/tsconfig.rie.typeorm.json</code>): 1,108 symbols, 2,750 edges, 1,565 erased, 189 star re-exports, 0 runtime cycles, 227 + 2 with type-only edges. These are exact matches.</li>
+  <li><b>New finding, now documented in the README:</b> the TypeORM oracle diff shows 1 real runtime edge RIE can't see. <code>src/cli-ts-node-esm.ts</code> calls a bare <code>require("./cli")</code>, and the indexer reads only import declarations. <code>npm run oracle</code> exits 1 on TypeORM because of it.</li>
+</ul>
+</main>
+</body>
+</html>

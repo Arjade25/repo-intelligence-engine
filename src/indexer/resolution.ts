@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { normalizePath } from "./index.js";
+import { findTopLevelRequireCalls, normalizePath } from "./index.js";
 
 /**
  * Input validation: find imports that point INTO the repo (relative, or matching a
@@ -41,9 +41,13 @@ export function findUnresolvedInternalImports(
   const out: UnresolvedImport[] = [];
   for (const sf of program.getSourceFiles()) {
     if (sf.isDeclarationFile || program.isSourceFileFromExternalLibrary(sf)) continue;
-    for (const spec of moduleSpecifiers(sf)) {
+    // A bare require() always resolves in CJS mode, whatever the file's own mode.
+    const specs = [
+      ...moduleSpecifiers(sf).map((spec) => ({ spec, mode: ts.getModeForUsageLocation(sf, spec, options) })),
+      ...findTopLevelRequireCalls(sf).map((spec) => ({ spec, mode: ts.ModuleKind.CommonJS as ts.ResolutionMode })),
+    ];
+    for (const { spec, mode } of specs) {
       if (!isInternal(spec.text)) continue;
-      const mode = ts.getModeForUsageLocation(sf, spec, options);
       const resolved = ts.resolveModuleName(spec.text, sf.fileName, options, host, undefined, undefined, mode);
       if (resolved.resolvedModule) continue;
       out.push({
