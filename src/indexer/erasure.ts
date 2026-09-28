@@ -20,13 +20,18 @@ import ts from "typescript";
  * exactly 3 such cases in nestjs/nest, all `@Injectable()` classes taking a
  * constructor dependency - and this is the dangerous direction, since a missed
  * runtime edge can hide a real cycle. So metadata positions count as value uses
- * when the option is on.
+ * when the option is on - but only the one name the compiler serializes, and only
+ * when it names a value (see metadataEntityName).
  *
- * Known remaining gap, in the SAFE direction: a `const enum` is inlined, so its
- * import vanishes from the emitted JS even though the source uses it as a value
- * (22 such edges in nest). Those are reported as runtime edges here, which can only
- * over-report a cycle, never hide one - and whether they really vanish depends on
- * `preserveConstEnums`/`isolatedModules`, so staying conservative is correct.
+ * A `const enum` is inlined, so its import vanishes from the emitted JS even though
+ * the source uses it as a value - most of nest's 29 safe-direction over-reports.
+ * The rule mirrors the checker's own (markAliasReferenced / isAliasResolvedToValue)
+ * and was checked against real emit under each flag (fixtures/const-enum-repo):
+ *   - a value use keeps the import only under `isolatedModules`
+ *   - an export (`export { E }`, `export { E } from`) keeps it under
+ *     `isolatedModules` or `preserveConstEnums`
+ * Only a symbol that IS a const enum counts; a namespace holding only const enums
+ * (which the compiler also inlines) is still treated as a value - the safe direction.
  *
  * `verbatimModuleSyntax` (and its two deprecated predecessors,
  * `importsNotUsedAsValues: "preserve"|"error"` and `preserveValueImports`) turn off
@@ -62,13 +67,16 @@ export function analyzeErasure(
   options: ts.CompilerOptions = {}
 ): ErasureAnalysis {
   const metadataRetainsTypes = options.emitDecoratorMetadata === true;
+  const strictNullChecks = options.strictNullChecks ?? options.strict ?? false;
   const erasureDisabled = isErasureDisabledByFlag(options);
   // Symbols referenced from a value position somewhere in this file. Collected in
   // one walk so a file with many imports still costs a single traversal.
   const valueUsed = new Set<ts.Symbol>();
 
-  const record = (symbol: ts.Symbol | undefined) => {
-    if (symbol) valueUsed.add(symbol);
+  const record = (symbol: ts.Symbol | undefined, keepsConstEnum: boolean) => {
+    if (!symbol) return;
+    if (!keepsConstEnum && isConstEnumAlias(symbol, checker)) return; // inlined, import dropped
+    valueUsed.add(symbol);
   };
 
   const visit = (node: ts.Node): void => {
@@ -77,16 +85,20 @@ export function analyzeErasure(
     // it aliases, so getSymbolAtLocation would miss the link.
     if (ts.isExportSpecifier(node) && !node.parent.parent.moduleSpecifier) {
       if (!node.isTypeOnly && !node.parent.parent.isTypeOnly) {
-        record(checker.getExportSpecifierLocalTargetSymbol(node));
+        record(checker.getExportSpecifierLocalTargetSymbol(node), preservesConstEnums(options));
       }
       return;
     }
-    if (
-      ts.isIdentifier(node) &&
-      !isDeclarationName(node) &&
-      (isValuePosition(node) || (metadataRetainsTypes && isDecoratorMetadataPosition(node)))
-    ) {
-      record(checker.getSymbolAtLocation(node));
+    if (ts.isIdentifier(node) && !isDeclarationName(node)) {
+      if (isValuePosition(node)) {
+        record(checker.getSymbolAtLocation(node), options.isolatedModules === true);
+      } else if (metadataRetainsTypes && isDecoratorMetadataPosition(node, strictNullChecks)) {
+        // Metadata re-emits the type as a value reference only if the name IS a
+        // value (a class); an interface or type alias serializes as `Object` and
+        // its import is still dropped.
+        const symbol = checker.getSymbolAtLocation(node);
+        if (symbol && resolvesToValue(symbol, checker)) record(symbol, options.isolatedModules === true);
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -103,6 +115,32 @@ export function analyzeErasure(
   };
 }
 
+/**
+ * Anything inside a `declare` context (e.g. `declare class X extends Base`, or a
+ * `declare namespace`/`declare module` body) emits no code at all.
+ */
+function isInAmbientContext(node: ts.Node): boolean {
+  for (let n: ts.Node | undefined = node; n; n = n.parent) {
+    if (ts.canHaveModifiers(n) && ts.getModifiers(n)?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) return true;
+  }
+  return false;
+}
+
+/** The compiler keeps const enum objects (and exports of them) under either flag. */
+function preservesConstEnums(options: ts.CompilerOptions): boolean {
+  return options.preserveConstEnums === true || options.isolatedModules === true;
+}
+
+/** Is this an import binding (alias) whose target is a const enum? */
+function isConstEnumAlias(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
+  if (!(symbol.flags & ts.SymbolFlags.Alias)) return false;
+  try {
+    return (checker.getAliasedSymbol(symbol).flags & ts.SymbolFlags.ConstEnum) !== 0;
+  } catch {
+    return false; // unresolvable alias -> assume it runs
+  }
+}
+
 /** The `X` in `import { X }` / `class X {}` is a declaration, not a reference to one. */
 function isDeclarationName(node: ts.Identifier): boolean {
   const parent = node.parent as ts.Node & { name?: ts.Node };
@@ -115,6 +153,7 @@ function isDeclarationName(node: ts.Identifier): boolean {
  * emitted code.
  */
 function isValuePosition(node: ts.Identifier): boolean {
+  if (isInAmbientContext(node)) return false;
   let current: ts.Node = node;
   let parent: ts.Node | undefined = node.parent;
 
@@ -134,16 +173,19 @@ function isValuePosition(node: ts.Identifier): boolean {
 }
 
 /**
- * Is this identifier inside a type annotation that `emitDecoratorMetadata` re-emits
- * as a runtime value? Climb to the annotation's owner, then ask whether that owner
- * (or, for a constructor parameter, its class) actually carries a decorator - an
- * undecorated declaration emits no metadata and its types still erase.
+ * Is this identifier the name `emitDecoratorMetadata` re-emits as a runtime value?
+ * Climb to the type annotation's owner, then ask whether that owner (or, for a
+ * constructor parameter, its class) actually carries a decorator - an undecorated
+ * declaration emits no metadata and its types still erase. Within a decorated
+ * annotation, only the root of the one entity name the compiler serializes counts
+ * (see metadataEntityName): `Dep` in `Promise<Dep>` or `Dep | Other` is erased.
  */
-function isDecoratorMetadataPosition(id: ts.Identifier): boolean {
+function isDecoratorMetadataPosition(id: ts.Identifier, strictNullChecks: boolean): boolean {
   let current: ts.Node = id;
   while (current.parent) {
     const parent = current.parent;
     if (ts.isParameter(parent) && parent.type === current) {
+      if (!isMetadataRoot(id, parent.type, strictNullChecks)) return false;
       if (hasDecorator(parent)) return true; // a parameter decorator emits metadata too
       const owner = parent.parent;
       if (ts.isConstructorDeclaration(owner)) return hasDecorator(owner.parent);
@@ -156,11 +198,70 @@ function isDecoratorMetadataPosition(id: ts.Identifier): boolean {
         ts.isGetAccessorDeclaration(parent)) &&
       parent.type === current
     ) {
-      return hasDecorator(parent);
+      return isMetadataRoot(id, parent.type, strictNullChecks) && hasDecorator(parent);
     }
     current = parent;
   }
   return false;
+}
+
+/** Is `id` the leftmost identifier of the entity name the compiler serializes for `type`? */
+function isMetadataRoot(id: ts.Identifier, type: ts.TypeNode, strictNullChecks: boolean): boolean {
+  let name = metadataEntityName(type, strictNullChecks);
+  while (name && ts.isQualifiedName(name)) name = name.left;
+  return name === id;
+}
+
+/**
+ * The single entity name `emitDecoratorMetadata` serializes for a type annotation,
+ * mirroring the checker's getEntityNameForDecoratorMetadata: a type reference's own
+ * name (never its type arguments), unwrapped through parentheses, and a union,
+ * intersection or conditional only when every member names the same identifier -
+ * skipping `never`, plus null/undefined when strictNullChecks is off. Anything else
+ * serializes to a global (`Object`, `Number`, ...) and references no import.
+ */
+function metadataEntityName(node: ts.TypeNode, strictNullChecks: boolean): ts.EntityName | undefined {
+  if (ts.isParenthesizedTypeNode(node)) return metadataEntityName(node.type, strictNullChecks);
+  if (ts.isTypeReferenceNode(node)) return node.typeName;
+  if (ts.isUnionTypeNode(node) || ts.isIntersectionTypeNode(node)) return commonEntityName(node.types, strictNullChecks);
+  if (ts.isConditionalTypeNode(node)) return commonEntityName([node.trueType, node.falseType], strictNullChecks);
+  return undefined;
+}
+
+function commonEntityName(types: readonly ts.TypeNode[], strictNullChecks: boolean): ts.EntityName | undefined {
+  let common: ts.EntityName | undefined;
+  for (let t of types) {
+    while (ts.isParenthesizedTypeNode(t)) t = t.type;
+    if (t.kind === ts.SyntaxKind.NeverKeyword) continue;
+    if (
+      !strictNullChecks &&
+      (t.kind === ts.SyntaxKind.UndefinedKeyword || (ts.isLiteralTypeNode(t) && t.literal.kind === ts.SyntaxKind.NullKeyword))
+    ) {
+      continue;
+    }
+    const name = metadataEntityName(t, strictNullChecks);
+    if (!name) return undefined;
+    if (common) {
+      // Only two plain identifiers with the same text agree; qualified names never do.
+      if (!ts.isIdentifier(common) || !ts.isIdentifier(name) || common.text !== name.text) return undefined;
+    } else {
+      common = name;
+    }
+  }
+  return common;
+}
+
+/** Does this symbol (following an import alias) name a value, not just a type? */
+function resolvesToValue(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
+  let target = symbol;
+  if (symbol.flags & ts.SymbolFlags.Alias) {
+    try {
+      target = checker.getAliasedSymbol(symbol);
+    } catch {
+      return true; // unresolvable alias -> assume it runs
+    }
+  }
+  return (target.flags & ts.SymbolFlags.Value) !== 0;
 }
 
 function hasDecorator(node: ts.Node): boolean {
@@ -200,5 +301,6 @@ export function reExportHasValueMeaning(
       return true; // unresolvable alias -> assume it runs
     }
   }
+  if (target.flags & ts.SymbolFlags.ConstEnum) return preservesConstEnums(options);
   return (target.flags & ts.SymbolFlags.Value) !== 0;
 }

@@ -23,7 +23,7 @@ describe("computeEmittedEdges (fixtures/type-only-repo)", () => {
   const { edges, fileCount } = computeEmittedEdges(join(FIXTURES, "type-only-repo/tsconfig.json"));
 
   it("indexes every non-declaration file in the fixture", () => {
-    expect(fileCount).toBeGreaterThanOrEqual(13);
+    expect(fileCount).toBeGreaterThanOrEqual(15);
   });
 
   it("has no edge for a whole-clause `import type`", () => {
@@ -74,6 +74,20 @@ describe("computeEmittedEdges (fixtures/type-only-repo)", () => {
     });
   });
 
+  it("drops the import behind `extends` on a `declare class`", () => {
+    expect(hasEdge(edges, "ambientExtends.ts", "values.ts")).toBe(false);
+  });
+
+  describe("bare require(...) calls", () => {
+    it("keeps a top-level require() inside an `if`", () => {
+      expect(hasEdge(edges, "bareRequire.ts", "values.ts")).toBe(true);
+    });
+
+    it("has no edge for a require() nested inside a function", () => {
+      expect(hasEdge(edges, "lazyRequire.ts", "d.ts")).toBe(false);
+    });
+  });
+
   it("keeps `export * from` even when the target module is entirely type-only", () => {
     expect(hasEdge(edges, "starReexportTypesOnly.ts", "b.ts")).toBe(true);
   });
@@ -101,6 +115,39 @@ describe("computeEmittedEdges (fixtures/decorator-metadata-repo)", () => {
   it("erases the identical usage when the class is NOT decorated", () => {
     expect(hasEdge(edges, "undecorated.ts", "deps.ts")).toBe(false);
   });
+
+  it.each(["decoratedInterface.ts", "decoratedAlias.ts", "decoratedGenericArg.ts", "decoratedUnion.ts", "decoratedNullable.ts"])(
+    "drops a decorated parameter type that metadata serializes as a global: %s",
+    (file) => {
+      expect(hasEdge(edges, file, "contracts.ts")).toBe(false);
+    }
+  );
+
+  it("keeps `X | null` when strictNullChecks is off", () => {
+    const loose = computeEmittedEdges(join(FIXTURES, "decorator-metadata-repo/tsconfig.loose.json"));
+    expect(hasEdge(loose.edges, "decoratedNullable.ts", "contracts.ts")).toBe(true);
+  });
+});
+
+describe("computeEmittedEdges (fixtures/const-enum-repo)", () => {
+  // Same table as src/indexer/index.test.ts: which files keep a runtime import of
+  // enums.ts under each const-enum-relevant flag.
+  const cases: [tsconfig: string, runtimeFrom: string[]][] = [
+    ["tsconfig.json", ["mixedEnums.ts", "usesRegularEnum.ts"]],
+    [
+      "tsconfig.isolated.json",
+      ["localReexportConstEnum.ts", "mixedEnums.ts", "reexportConstEnum.ts", "usesConstEnum.ts", "usesRegularEnum.ts"],
+    ],
+    ["tsconfig.preserve.json", ["localReexportConstEnum.ts", "mixedEnums.ts", "reexportConstEnum.ts", "usesRegularEnum.ts"]],
+  ];
+
+  for (const [tsconfig, runtimeFrom] of cases) {
+    it(`${tsconfig}: the compiler keeps imports of enums.ts in exactly ${runtimeFrom.length} file(s)`, () => {
+      const { edges } = computeEmittedEdges(join(FIXTURES, "const-enum-repo", tsconfig));
+      const from = [...new Set(edges.filter((e) => e.to.endsWith("/enums.ts")).map((e) => e.from.split("/").pop()!))].sort();
+      expect(from).toEqual(runtimeFrom);
+    });
+  }
 });
 
 describe("computeEmittedEdges (fixtures/sample-repo)", () => {

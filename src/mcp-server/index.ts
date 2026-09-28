@@ -34,7 +34,9 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
 
   server.tool(
     "find_module",
-    "Locate which file(s) define a given symbol/class/function.",
+    "Locate which file(s) define a given symbol/class/function. Check symbol_indexed in the result: " +
+      "false means no top-level declaration has that exact name (the note says what is indexed, and " +
+      "similar_names lists case-insensitive matches), NOT that the name appears nowhere in the repo.",
     { name: z.string().describe("symbol name to locate") },
     async ({ name }) => json(findModule(db, name))
   );
@@ -71,7 +73,8 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
     "dependency_path",
     "Is there an import path from A to B, and what is it (shortest file chain, following static imports " +
       "and re-exports, including type-only ones). Each end may be a symbol name or a file path. If a symbol " +
-      "name is declared in multiple files, the result's `ambiguity` field lists every candidate and which was used.",
+      "name is declared in multiple files, the result's `ambiguity` field lists every candidate and which was used. " +
+      "found:false with files_searched means the search was exhaustive over everything A imports - no need to verify by hand.",
     {
       symbol_a: z.string().describe("start: a symbol name or a file path"),
       symbol_b: z.string().describe("target: a symbol name or a file path"),
@@ -99,8 +102,8 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
 
   server.tool(
     "reindex",
-    "Rebuild the index for the repo.",
-    { path: z.string().optional().describe("optional subtree; v1 rebuilds all") },
+    "Rebuild the whole index for the repo (every file the tsconfig includes - there is no partial rebuild).",
+    {},
     async () => {
       const { unresolved_internal_imports } = reindex(db, tsconfigPath);
       const { c } = db.prepare("SELECT COUNT(*) AS c FROM symbols").get() as { c: number };

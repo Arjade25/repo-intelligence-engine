@@ -111,8 +111,11 @@ interface ImportedName {
   isTypeOnly: boolean;
 }
 
-/** 'imports' covers every named/default/namespace/side-effect edge; 'reexport_star' is `export * from`. */
-type EdgeType = "imports" | "reexport_star";
+/**
+ * 'imports' covers every named/default/namespace/side-effect edge; 'reexport_star'
+ * is `export * from`; 'require' is a bare top-level `require("./x")` call.
+ */
+type EdgeType = "imports" | "reexport_star" | "require";
 
 /** Walk top-level statements, recording exported/top-level declarations. */
 function extractSymbols(db: Database.Database, sourceFile: ts.SourceFile, _checker: ts.TypeChecker): void {
@@ -138,6 +141,8 @@ function extractSymbols(db: Database.Database, sourceFile: ts.SourceFile, _check
  *     to_symbol_id NULL
  *   - `export * from` additionally gets edge_type 'reexport_star' rather than
  *     'imports', so it can be told apart from the other NULL-symbol edges
+ *   - a bare top-level `require("./x")` call -> one file->file edge, edge_type
+ *     'require', never type-only
  */
 function extractEdges(
   db: Database.Database,
@@ -270,4 +275,53 @@ function extractEdges(
       writeEdges(toFile, [], erased);
     }
   }
+
+  // Bare `require("./x")` calls are expressions, not statements, so the loop above
+  // never sees them - yet the compiler keeps every one. Missed for real on TypeORM
+  // (src/cli-ts-node-esm.ts loads ./cli via a require() inside an `if`), the one
+  // edge the emitted-JS oracle found in the dangerous direction. Never erased.
+  for (const specifier of findTopLevelRequireCalls(sourceFile)) {
+    const toFile = resolveSpecifier(specifier);
+    if (toFile) writeEdges(toFile, [], false, "require");
+  }
+}
+
+/**
+ * Every `require("literal")` call that runs when the module loads - i.e. not
+ * nested inside a function, method, accessor, constructor or static block. A
+ * require() inside a function is a lazy load: it can't take part in an
+ * initialization cycle, and counting it would also turn every downleveled dynamic
+ * `import()` (`Promise.resolve().then(() => require(X))`) into a hard edge. This is
+ * the same boundary rule benchmarks/oracle/emitted-edges.ts applies to emitted
+ * JS; the two are kept separate on purpose so the oracle can catch bugs here.
+ */
+export function findTopLevelRequireCalls(sourceFile: ts.SourceFile): ts.StringLiteral[] {
+  const out: ts.StringLiteral[] = [];
+
+  const isFunctionBoundary = (node: ts.Node): boolean =>
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isGetAccessorDeclaration(node) ||
+    ts.isSetAccessorDeclaration(node) ||
+    ts.isConstructorDeclaration(node) ||
+    ts.isClassStaticBlockDeclaration(node);
+
+  const visit = (node: ts.Node): void => {
+    if (isFunctionBoundary(node)) return;
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "require" &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteral(node.arguments[0])
+    ) {
+      out.push(node.arguments[0]);
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  ts.forEachChild(sourceFile, visit);
+  return out;
 }
