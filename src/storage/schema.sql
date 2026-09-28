@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS edges (
   from_file TEXT NOT NULL,                       -- the importing module
   to_file TEXT NOT NULL,                         -- the imported module (resolved)
   to_symbol_id INTEGER REFERENCES symbols(id),   -- nullable: the specific named import, if any
-  edge_type TEXT NOT NULL,                        -- 'imports', or 'reexport_star' for `export * from` / `export * as ns from`
+  edge_type TEXT NOT NULL,                        -- 'imports', 'reexport_star' for `export * from` / `export * as ns from`, or 'require' for a bare top-level require("./x") call
   -- 1 for `import type { X }`, `import { type X }`, `export type { X } from`, etc.
   -- TypeScript ERASES these at compile time, so a type-only edge is a real source
   -- dependency but NOT a runtime one. Cycle detection defaults to excluding them:

@@ -21,7 +21,7 @@ The engine parses a TypeScript repo with the **TypeScript Compiler API** and sto
 
 The `engine/` functions are callable directly (CLI, tests) — the engine is the product. It also supports Claude Code and any other MCP-compatible client through an integrated MCP server.
 
-Every path-taking query accepts absolute or repo-relative paths, with either slash style, matched case-insensitively. When a path or name matches nothing, `find_related_files`, `find_symbol_references` and `dependency_path` say so explicitly (`file_indexed: false`, `symbol_indexed: false`, or a `note`) rather than returning a bare empty list. `find_module` still returns `[]`. Agents treat an empty list as "no results" and fall back to grep, which the benchmark caught happening (see † below). The MCP `reindex` tool accepts an optional `path` argument but ignores it: every rebuild covers the whole repo.
+Every path-taking query accepts absolute or repo-relative paths, with either slash style, matched case-insensitively. When a path or name matches nothing, every query says so explicitly (`file_indexed: false`, `symbol_indexed: false`, or a `note`) rather than returning a bare empty list. Agents treat an empty list as "no results" and fall back to grep, which the benchmark caught happening (see † below). `find_module` was the last to return a bare `[]`; on a miss it now also lists `similar_names` that match ignoring case. When `dependency_path` finds no path, it says how many files the search reached (`files_searched`) and that the search was exhaustive. The MCP `reindex` tool takes no arguments: every rebuild covers the whole repo.
 
 ## Architecture
 
@@ -92,7 +92,7 @@ There are two harnesses. They answer different questions:
 
 ### Hand-written tasks: TypeORM
 
-Measured against [TypeORM](https://github.com/typeorm/typeorm) @ `04ff4dae`: 496 source files, 1,108 indexed symbols, 2,750 import edges. Nine fixed navigation tasks (`benchmarks/tasks.json`). These counts were re-verified on 2026-09-28 by re-indexing with the now-committed `benchmarks/tsconfig.rie.typeorm.json`. That also gives 1,565 erased edges, 189 star re-exports and 13,517 references, 0 unresolved imports, and 0 runtime cycles (227 + 2 files with type-only edges counted).
+Measured against [TypeORM](https://github.com/typeorm/typeorm) @ `04ff4dae`: 496 source files, 1,108 indexed symbols, 2,750 import edges. Nine fixed navigation tasks (`benchmarks/tasks.json`). These counts were re-verified on 2026-09-28 by re-indexing with the now-committed `benchmarks/tsconfig.rie.typeorm.json`. That also gives 1,565 erased edges, 189 star re-exports and 13,517 references, 0 unresolved imports, and 0 runtime cycles (227 + 2 files with type-only edges counted). The benchmark runs below used that index. Since then, the indexer also records bare `require()` calls and matches the compiler's erasure in three more cases (see [Checking it edge by edge](#checking-it-edge-by-edge)). The current index has 2,751 edges, 1,568 of them erased; the symbols, star re-exports and cycle results are unchanged.
 
 #### Where the engine does *not* help
 
@@ -177,7 +177,7 @@ On these tasks the engine did not pay for itself. Accuracy is at the ceiling in 
 
 Both arms answered all 100 runs correctly. The assisted arm got there with ~2.1× fewer tokens per correct answer, half the tool calls, and a median wall time of 29 s against 47 s. It had the lower median on 9 of the 10 tasks, and it used `dependency_path` or `find_related_files` in all 50 of its runs.
 
-The saving is concentrated where the claim predicts. When a path exists, `dependency_path` returns the whole 12–14-hop chain in one query: ~3.2× fewer tokens by median, with 25 RIE calls across 25 runs. Proving that *no* path exists saved much less, ~1.1× by median. In those runs the agent did not accept `found: false` on its own. It followed up with 38 `find_related_files` calls and 30 file reads (against 7 reads when a path existed), walking the import graph by hand to confirm the negative. A more explicit "no path" answer, for example one that states how many files were searched, is the obvious next thing to try.
+The saving is concentrated where the claim predicts. When a path exists, `dependency_path` returns the whole 12–14-hop chain in one query: ~3.2× fewer tokens by median, with 25 RIE calls across 25 runs. Proving that *no* path exists saved much less, ~1.1× by median. In those runs the agent did not accept `found: false` on its own. It followed up with 38 `find_related_files` calls and 30 file reads (against 7 reads when a path existed), walking the import graph by hand to confirm the negative. A `found: false` result now carries `files_searched` and a note saying the search was exhaustive. Whether that changes agent behavior hasn't been measured yet: the numbers above predate it.
 
 ### Overall reading
 
@@ -202,7 +202,7 @@ Crucially, the test is **whether the compiler erases the import, not whether the
 
 This is not a hypothetical refinement — it is the difference between the right answer and the wrong one on real codebases, and the section below on nest measures exactly how much.
 
-That distinction turns out to dominate the result. On TypeORM, **56.9% of all import edges (1,565 of 2,750) are erased**, and the two views disagree completely:
+That distinction turns out to dominate the result. On TypeORM, **57% of all import edges (1,568 of 2,751) are erased**, and the two views disagree completely:
 
 | Query | Result |
 |---|---|
@@ -225,7 +225,7 @@ TypeORM passes this test for a reason that does not generalize: its authors writ
 
 Ground truth here is not the engine's own output. It comes from `benchmarks/oracle/emitted-edges.ts`, which builds a real `ts.Program` and emits every file. It then reads which imports survive into the emitted JavaScript, as `require()` calls or retained ESM `import`/`export` statements, and runs its own Tarjan on those. An import the compiler elides cannot cause a runtime cycle; one it keeps can. The oracle leaves the repo's `module` and `moduleResolution` settings alone. An earlier version forced `module: CommonJS`, and TypeScript rejects that combination (TS5110) under the `Node16` resolution that nest uses. TypeORM re-measured against the same oracle is unchanged at 0 runtime cycles.
 
-Edge by edge, TypeORM (re-run 2026-09-28) has 1,144 runtime pairs on each side. 1,143 agree, 1 is a safe over-report, and **1 is a real runtime edge RIE doesn't see**: `src/cli-ts-node-esm.ts` loads `./cli` with a bare `require("./cli")` call inside an `if`. That is a function call, not an import declaration. The indexer walks `import`, `export … from` and `import x = require()` statements only, so it records no edge, while the emitted JavaScript keeps the `require()`. It doesn't change TypeORM's answer, since neither side finds a cycle. But it is a real gap in the dangerous direction: a repo that loads its own modules through bare `require()` calls can have runtime cycles RIE won't report. `npm run oracle` exits 1 on TypeORM for this reason.
+Edge by edge, TypeORM (re-run 2026-09-28) has **1,144 runtime pairs on each side, all agreeing: 0 safe over-reports and 0 hidden edges**, and `npm run oracle` exits 0. The last over-report was `src/driver/mongodb/typings.ts`, whose `declare class … extends Readable` looked like the one heritage position that survives. A `declare` class emits no code, so the indexer now treats everything in an ambient context as erased. Until that re-run, one real runtime edge was hidden: `src/cli-ts-node-esm.ts` loads `./cli` with a bare `require("./cli")` call inside an `if`. That is a function call, not an import declaration, and the indexer walked only `import`, `export … from` and `import x = require()` statements, while the emitted JavaScript keeps the `require()`. It didn't change TypeORM's answer, since neither side found a cycle, but it was a gap in the dangerous direction. The indexer now records every top-level `require("literal")` call as a runtime edge (`edge_type: 'require'`). It uses the oracle's rule: a `require()` nested inside a function is a lazy load and not an edge. The unresolved-import check covers these calls too.
 
 **Re-verified 2026-09-28** at nest @ `40d07dc6`, with the committed `benchmarks/tsconfig.rie.nest.json`. The oracle covered 664 files. `src/indexer/resolution.ts` reports **0 unresolved internal imports** under the compiler's own ESM/CJS resolution mode (see [Unresolved imports](#unresolved-imports)). RIE and the oracle both find 2 runtime groups of 4 files each. Counting type-only edges as well, RIE reports 69, 54, 27, 10, 6, 2 and 2.
 
@@ -240,15 +240,20 @@ Component counts are a coarse check — two graphs can agree on cycles and still
 
 | | pairs |
 |---|---|
-| agree with emitted output | 2,153 |
-| erased by the compiler, reported as runtime | 29 |
+| agree with emitted output | 2,180 |
+| erased by the compiler, reported as runtime | 2 |
 | real runtime edge, reported as erased | **0** |
 
-`npm run oracle` reproduces this table. The 2026-09-28 re-run found RIE marking 1,469 distinct pairs as runtime. Of those, 1,440 agree with the oracle's 1,440 runtime pairs and 29 are safe over-reports; the other 713 pairs agree as erased; and none are hidden. That is the same 2,153 / 29 / 0 split as above.
+`npm run oracle` reproduces this table. The 2026-09-28 re-run found RIE marking 1,442 distinct pairs as runtime. Of those, 1,440 agree with the oracle's 1,440 runtime pairs and 2 are safe over-reports; the other 740 pairs agree as erased; and none are hidden. Earlier the same day the split was 2,153 / 29 / 0. The 27 closed since are covered below.
 
 The two directions are not equally serious. Reporting a runtime edge that the compiler erases can only ever *over*-report a cycle; missing a real one can *hide* one. The first pass of this analysis had 3 of the dangerous kind, all `@Injectable()` classes taking a constructor dependency: `emitDecoratorMetadata` re-emits a decorated declaration's parameter and property types as `design:paramtypes`/`design:type`, so those imports survive despite appearing only in type position. The indexer now treats metadata positions as value uses when the option is on, which takes that column to zero.
 
-**Known limit**, in the safe direction: a `const enum` is inlined by the compiler, so its import disappears from the emitted JavaScript even though the source genuinely uses it as a value — that is most of the remaining 29. Whether it disappears depends on `preserveConstEnums` and `isolatedModules`, so the indexer stays conservative and counts the edge.
+The 29 safe over-reports came down to two causes, and both now follow the compiler's own rules. The `fixtures/const-enum-repo` and `fixtures/decorator-metadata-repo` fixtures check each rule against real emit:
+
+- **`const enum`** (20 pairs). The compiler inlines a const enum's members, so the import disappears even though the source uses it as a value. A value use keeps the import only under `isolatedModules`. An export (`export { E }`, `export { E } from`) keeps it under `isolatedModules` or `preserveConstEnums`.
+- **Decorator metadata that serializes to a global** (7 pairs). `emitDecoratorMetadata` emits one name per annotated type, and only a class survives as a reference. An interface or type alias serializes to `Object`. So does a union of different types, or `X | null` under `strictNullChecks`. In `Promise<X>`, only `Promise` is emitted. Previously, any name anywhere in a decorated annotation counted.
+
+**Known limit**, in the safe direction: the last 2 pairs are regular enums whose member initializers reference another module's enum (`PAYLOAD = RouteParamtypes.BODY`). The compiler constant-folds those values and drops the import. The indexer counts the edge. A namespace that holds only const enums is also still treated as a value.
 
 ### `verbatimModuleSyntax` and `import x = require(...)`
 
@@ -272,7 +277,7 @@ It is not a rare edge case. TypeORM's `@Entity` decorator — the library's most
 export * from "./decorator/entity/Entity"
 ```
 
-Without `re_exported_by`, the tool reports a live public API as having zero uses outside its own file — which reads as dead code. **189 of TypeORM's 2,750 edges are star re-exports.** The indexer tags them `edge_type: 'reexport_star'`, keeping them distinguishable from the other edges that carry no symbol on one end (default, namespace, and side-effect imports).
+Without `re_exported_by`, the tool reports a live public API as having zero uses outside its own file — which reads as dead code. **189 of TypeORM's 2,751 edges are star re-exports.** The indexer tags them `edge_type: 'reexport_star'`, keeping them distinguishable from the other edges that carry no symbol on one end (default, namespace, and side-effect imports).
 
 This was found by reading benchmark transcripts, not by design review: on the reference-count task, both arms independently identified the `index.ts` re-export as the answer while the engine did not report it.
 
@@ -296,20 +301,20 @@ The fix for nest was to point the aliases at files (`"@nestjs/common": ["./packa
 
 ## Test suite
 
-`npm test` runs **146 tests in 11 files, all passing** (vitest, 2026-09-28). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, esm-alias and taskgen. They don't need a cloned benchmark target.
+`npm test` runs **177 tests in 11 files, all passing** (vitest, 2026-09-28). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. They don't need a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
-| `src/engine/index.test.ts` | All six queries, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path `dependency_path` | 39 |
-| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure | 25 |
+| `src/engine/index.test.ts` | All six queries, explicit not-found results, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path `dependency_path` | 41 |
+| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata | 40 |
+| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums and decorator metadata | 31 |
 | `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed | 21 |
-| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()` and NodeNext | 19 |
 | `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading, summaries (stub agent) | 10 |
+| `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 9 |
 | `src/indexer/erasure.test.ts` | Value-position analysis, `verbatimModuleSyntax` gate | 8 |
-| `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call | 8 |
 | `benchmarks/oracle/tarjan.test.ts` | Independent SCC implementation | 6 |
+| `src/indexer/resolution.test.ts` | Unresolved internal import detection (ESM directory aliases, bare `require()`) | 5 |
 | `src/indexer/references.test.ts` | `findReferences` union across alias groups | 4 |
-| `src/indexer/resolution.test.ts` | Unresolved internal import detection (ESM directory aliases) | 4 |
 | `src/engine/reindex.test.ts` | A full rebuild is idempotent and reflects added and removed files | 2 |
 
 ## Development

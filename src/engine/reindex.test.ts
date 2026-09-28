@@ -67,18 +67,18 @@ describe("reindex", () => {
       const db = openDb(":memory:");
 
       reindex(db, tsconfigPath);
-      expect(findModule(db, "A")).toHaveLength(1);
-      expect(findModule(db, "B")).toHaveLength(0);
+      expect(findModule(db, "A").declarations).toHaveLength(1);
+      expect(findModule(db, "B").declarations).toHaveLength(0);
 
       writeFileSync(join(dir, "src/b.ts"), "export const B = 2;\n");
       reindex(db, tsconfigPath);
-      expect(findModule(db, "A")).toHaveLength(1);
-      expect(findModule(db, "B")).toHaveLength(1);
+      expect(findModule(db, "A").declarations).toHaveLength(1);
+      expect(findModule(db, "B").declarations).toHaveLength(1);
 
       rmSync(join(dir, "src/b.ts"));
       reindex(db, tsconfigPath);
-      expect(findModule(db, "A")).toHaveLength(1);
-      expect(findModule(db, "B")).toHaveLength(0);
+      expect(findModule(db, "A").declarations).toHaveLength(1);
+      expect(findModule(db, "B").declarations).toHaveLength(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

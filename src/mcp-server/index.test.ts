@@ -60,11 +60,11 @@ describe("mcp-server (thin adapter over engine/, plan step 5)", () => {
     const viaMcp = await callToolJson(client, "find_module", { name: "Circle" });
     const direct = findModule(db, "Circle");
     expect(viaMcp).toEqual(direct);
-    expect(direct.length).toBeGreaterThan(0); // sanity: not comparing two empty results
+    expect(direct.declarations.length).toBeGreaterThan(0); // sanity: not comparing two empty results
   });
 
   it("find_related_files: MCP result matches the direct engine call", async () => {
-    const mainTs = findModule(db, "run")[0].file_path;
+    const mainTs = findModule(db, "run").declarations[0].file_path;
     const viaMcp = await callToolJson(client, "find_related_files", { file_path: mainTs });
     const direct = findRelatedFiles(db, mainTs);
     expect(viaMcp).toEqual(direct);
@@ -95,6 +95,12 @@ describe("mcp-server (thin adapter over engine/, plan step 5)", () => {
     expect(directCount).toBe(6); // the fixture's hand-counted symbol total (step 1)
     expect(viaMcp).not.toHaveProperty("warning"); // every fixture import resolves
   }, 30_000); // a full reindex: ~3s idle, over vitest's 5s default under parallel load (see engine/reindex.test.ts)
+
+  it("reindex: takes no arguments - it used to accept a `path` it silently ignored", async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === "reindex")!;
+    expect(Object.keys(tool.inputSchema.properties ?? {})).toEqual([]);
+  });
 
   it("find_circular_dependencies: reports none for the acyclic fixture repo", async () => {
     const viaMcp = await callToolJson(client, "find_circular_dependencies", {});
