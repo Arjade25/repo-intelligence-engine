@@ -6,6 +6,7 @@
  */
 import { openDb } from "../storage/db.js";
 import { reindex } from "../engine/index.js";
+import { describeUnresolved } from "./resolution.js";
 
 const tsconfigPath = process.argv[2];
 const dbPath = process.argv[3] ?? "repo-index.db";
@@ -17,7 +18,7 @@ if (!tsconfigPath) {
 
 const db = openDb(dbPath);
 const started = Date.now();
-reindex(db, tsconfigPath);
+const { unresolved_internal_imports } = reindex(db, tsconfigPath);
 
 const { symbols } = db.prepare("SELECT COUNT(*) AS symbols FROM symbols").get() as { symbols: number };
 const { edges } = db.prepare("SELECT COUNT(*) AS edges FROM edges").get() as { edges: number };
@@ -25,4 +26,5 @@ const { refs } = db.prepare("SELECT COUNT(*) AS refs FROM references_").get() as
 console.error(
   `indexed ${symbols} symbols, ${edges} edges, ${refs} references in ${Date.now() - started}ms -> ${dbPath}`
 );
+if (unresolved_internal_imports.length > 0) console.error(`WARNING: ${describeUnresolved(unresolved_internal_imports)}`);
 db.close();

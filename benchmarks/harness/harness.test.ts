@@ -3,7 +3,14 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { generateTasks, type CycleTraceTask, type ImpactTask, type Task, type TrapTask } from "../taskgen/generate.js";
+import {
+  generateTasks,
+  type CycleTraceTask,
+  type DependencyPathTask,
+  type ImpactTask,
+  type Task,
+  type TrapTask,
+} from "../taskgen/generate.js";
 import { extractAnswerJson, gradeAnswer, toRepoRelative } from "./grade.js";
 import { runBenchmark, summarize, type Runner } from "./bench.js";
 import { parseTranscript, type TranscriptMetrics } from "./claude.js";
@@ -14,6 +21,7 @@ const set = generateTasks({ tsconfigPath: `${FIXTURE}/tsconfig.json`, repo: "fix
 const cycle = set.tasks.find((t): t is CycleTraceTask => t.category === "cycle_trace")!;
 const trap = set.tasks.find((t): t is TrapTask => t.category === "runtime_type_trap")!;
 const impact = set.tasks.find((t): t is ImpactTask => t.category === "change_impact")!;
+const pathTask = set.tasks.find((t): t is DependencyPathTask => t.category === "dependency_path")!;
 
 const json = (value: unknown) => `Some reasoning.\n\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\`\n`;
 
@@ -42,6 +50,13 @@ describe("gradeAnswer", () => {
   it("grades a cycle given as absolute Windows paths", () => {
     const abs = cycle.expected.example_cycle.map((f) => `${FIXTURE}/${f}`.replace(/\//g, "\\"));
     expect(gradeAnswer(cycle, json({ path: abs }), FIXTURE)).toMatchObject({ parsed: true, correct: true, score: 1 });
+  });
+
+  it("grades a dependency path, reading {path: null} as 'no such chain'", () => {
+    const abs = pathTask.expected.example_path!.map((f) => `${FIXTURE}/${f}`.replace(/\//g, "\\"));
+    expect(gradeAnswer(pathTask, json({ path: abs }), FIXTURE)).toMatchObject({ parsed: true, correct: true, score: 1 });
+    expect(gradeAnswer(pathTask, json({ path: null }), FIXTURE)).toMatchObject({ parsed: true, correct: false, reason: "a path exists" });
+    expect(gradeAnswer(pathTask, json({ path: "src/paths/s5.ts" }), FIXTURE).parsed).toBe(false);
   });
 
   it("reads yes/no answers leniently but only from the answer field", () => {

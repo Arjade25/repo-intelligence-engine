@@ -1,4 +1,4 @@
-import type { CycleTraceTask, ImpactTask, TrapTask } from "./generate.js";
+import type { CycleTraceTask, DependencyPathTask, ImpactTask, TrapTask } from "./generate.js";
 
 /**
  * Graders for generated tasks. Each takes an already-structured answer (a file
@@ -32,6 +32,29 @@ export function validateCyclePath(task: CycleTraceTask, answer: string[]): Cycle
   for (let i = 0; i + 1 < path.length; i++) {
     if (!edges.has(`${path[i]}\u0000${path[i + 1]}`)) {
       return { valid: false, reason: `no runtime import ${path[i]} -> ${path[i + 1]}` };
+    }
+  }
+  return { valid: true };
+}
+
+/**
+ * A dependency-path answer is a chain, or null for "no path". Any chain from `from`
+ * to `to` whose every hop is a real import is accepted - `path_edges` holds every
+ * edge that lies on some such chain, so no valid answer is missing from it.
+ */
+export function validateImportPath(task: DependencyPathTask, answer: string[] | null): CyclePathVerdict {
+  const { from, to, reachable, path_edges } = task.expected;
+  if (!reachable) {
+    return answer === null || answer.length === 0 ? { valid: true } : { valid: false, reason: "there is no such path" };
+  }
+  if (answer === null || answer.length === 0) return { valid: false, reason: "a path exists" };
+  const path = answer.map(normalize);
+  if (path[0] !== from) return { valid: false, reason: `path must start at ${from}` };
+  if (path[path.length - 1] !== to) return { valid: false, reason: `path must end at ${to}` };
+  const edges = new Set(path_edges.map(([a, b]) => `${a}\u0000${b}`));
+  for (let i = 0; i + 1 < path.length; i++) {
+    if (!edges.has(`${path[i]}\u0000${path[i + 1]}`)) {
+      return { valid: false, reason: `no import ${path[i]} -> ${path[i + 1]}` };
     }
   }
   return { valid: true };

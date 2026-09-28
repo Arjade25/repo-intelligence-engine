@@ -1,0 +1,84 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "paths": {
+      "@nestjs/common": [
+        "./packages/common/index.ts"
+      ],
+      "@nestjs/common/*": [
+        "./packages/common/*.ts",
+        "./packages/common/*"
+      ],
+      "@nestjs/core": [
+        "./packages/core/index.ts"
+      ],
+      "@nestjs/core/*": [
+        "./packages/core/*.ts",
+        "./packages/core/*"
+      ],
+      "@nestjs/microservices": [
+        "./packages/microservices/index.ts"
+      ],
+      "@nestjs/microservices/*": [
+        "./packages/microservices/*.ts",
+        "./packages/microservices/*"
+      ],
+      "@nestjs/websockets": [
+        "./packages/websockets/index.ts"
+      ],
+      "@nestjs/websockets/*": [
+        "./packages/websockets/*.ts",
+        "./packages/websockets/*"
+      ],
+      "@nestjs/testing": [
+        "./packages/testing/index.ts"
+      ],
+      "@nestjs/testing/*": [
+        "./packages/testing/*.ts",
+        "./packages/testing/*"
+      ],
+      "@nestjs/platform-express": [
+        "./packages/platform-express/index.ts"
+      ],
+      "@nestjs/platform-express/*": [
+        "./packages/platform-express/*.ts",
+        "./packages/platform-express/*"
+      ],
+      "@nestjs/platform-ws": [
+        "./packages/platform-ws/index.ts"
+      ],
+      "@nestjs/platform-ws/*": [
+        "./packages/platform-ws/*.ts",
+        "./packages/platform-ws/*"
+      ],
+      "@nestjs/platform-fastify": [
+        "./packages/platform-fastify/index.ts"
+      ],
+      "@nestjs/platform-fastify/*": [
+        "./packages/platform-fastify/*.ts",
+        "./packages/platform-fastify/*"
+      ],
+      "@nestjs/platform-socket.io": [
+        "./packages/platform-socket.io/index.ts"
+      ],
+      "@nestjs/platform-socket.io/*": [
+        "./packages/platform-socket.io/*.ts",
+        "./packages/platform-socket.io/*"
+      ]
+    }
+  },
+  "include": [
+    "packages"
+  ],
+  "exclude": [
+    "**/*.spec.ts",
+    "**/node_modules/**"
+  ]
+}

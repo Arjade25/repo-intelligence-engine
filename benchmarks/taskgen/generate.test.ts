@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { generateTasks, type CycleTraceTask, type ImpactTask, type TrapTask } from "./generate.js";
+import { generateTasks, type CycleTraceTask, type DependencyPathTask, type ImpactTask, type TrapTask } from "./generate.js";
 import { ImpactOracle } from "./impact.js";
-import { scoreImpact, validateCyclePath, validateTrapAnswer } from "./validators.js";
+import { scoreImpact, validateCyclePath, validateImportPath, validateTrapAnswer } from "./validators.js";
 import { buildAdjacency, shortestCycleThrough } from "./graph.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -17,6 +17,10 @@ const TSCONFIG = join(FIXTURE, "tsconfig.json");
  *   trap/    e -> f -> g -> h, h -> e type-only      source cycle only (every pair is "no")
  *   lib/     makeWidget, reached by 1 direct importer + 4 via the barrel (one through @lib alias)
  *   solo/    soloFn with a single importer (must be filtered)
+ *   gadget/  makeGadget, reached through a NAMED re-export whose importer error
+ *            recovery shields (must be dropped)
+ *   paths/   start -> s1 -> ... -> s5 (5 hops); island, imported by i1-i3 and itself
+ *            reaching start, is the one near miss start can't reach
  */
 describe("generateTasks (fixtures/taskgen-repo)", () => {
   const set = generateTasks({ tsconfigPath: TSCONFIG, repo: "fixture/taskgen-repo", idPrefix: "fx" });
@@ -75,6 +79,37 @@ describe("generateTasks (fixtures/taskgen-repo)", () => {
     });
   });
 
+  it("builds dependency-path tasks only from chains of at least --min-hops (default 5)", () => {
+    const paths = set.tasks.filter((t): t is DependencyPathTask => t.category === "dependency_path");
+    expect(paths.length).toBeGreaterThan(0);
+    expect(set.stats.dependency_path.max_hops).toBe(7); // i1 -> island -> start -> s1 -> ... -> s5
+    for (const t of paths) {
+      expect(t.expected.reachable).toBe(true); // no start reaches the default 25-file closure
+      expect(t.difficulty.min_hops).toBeGreaterThanOrEqual(5);
+      expect(t.expected.example_path![0]).toBe(t.expected.from);
+      expect(validateImportPath(t, t.expected.example_path).valid).toBe(true);
+      expect(validateImportPath(t, null).valid).toBe(false);
+    }
+  });
+
+  it("drops makeGadget: its answer hinges on error recovery through a broken named re-export", () => {
+    expect(set.stats.change_impact.dropped_broken_reexport).toBe(1);
+    expect(impacts.some((t) => t.expected.symbol === "makeGadget")).toBe(false);
+  });
+
+  it("states the tsconfig's scope in every prompt", () => {
+    for (const t of set.tasks) {
+      expect(t.prompt).toContain("Scope: only the files tsconfig.json includes count (include `src/**/*`)");
+    }
+  });
+
+  it("refuses to generate when internal imports don't resolve, unless told to", () => {
+    const esm = join(__dirname, "../../fixtures/esm-alias-repo/tsconfig.json");
+    expect(() => generateTasks({ tsconfigPath: esm, repo: "fixture/esm", idPrefix: "esm" })).toThrow(
+      /2 internal import\(s\) do not resolve[\s\S]*--allow-unresolved/
+    );
+  });
+
   it("records the tsconfig flags every task was generated under", () => {
     for (const t of set.tasks) expect(t.tsconfig_flags).toEqual(set.tsconfig_flags);
     expect(set.tsconfig_flags).toMatchObject({ emitDecoratorMetadata: false, verbatimModuleSyntax: false });
@@ -83,6 +118,48 @@ describe("generateTasks (fixtures/taskgen-repo)", () => {
   it("is deterministic for a given seed", () => {
     const again = generateTasks({ tsconfigPath: TSCONFIG, repo: "fixture/taskgen-repo", idPrefix: "fx" });
     expect(again.tasks).toEqual(set.tasks);
+  }, 30_000); // a full regeneration: ~1-2s idle, measured at 6s under a loaded parallel run
+});
+
+describe("generateTasks: unreachable dependency paths", () => {
+  const set = generateTasks({ tsconfigPath: TSCONFIG, repo: "fixture/taskgen-repo", idPrefix: "fx", minClosure: 5 });
+  const noPath = set.tasks.filter((t): t is DependencyPathTask => t.category === "dependency_path" && !t.expected.reachable);
+
+  it("picks the near miss: island is next door and reaches start, but start never reaches it", () => {
+    expect(set.stats.dependency_path.unreachable_candidates).toBe(1);
+    expect(noPath).toHaveLength(1);
+    const [t] = noPath;
+    expect([t.expected.from, t.expected.to]).toEqual(["src/paths/start.ts", "src/paths/island.ts"]);
+    expect(t.difficulty).toMatchObject({ min_hops: null, closure_size: 5, reverse_path: true });
+  });
+
+  it("grades null or an empty list as the right answer, and any chain as wrong", () => {
+    const [t] = noPath;
+    expect(validateImportPath(t, null).valid).toBe(true);
+    expect(validateImportPath(t, []).valid).toBe(true);
+    expect(validateImportPath(t, ["src/paths/start.ts", "src/paths/island.ts"]).valid).toBe(false);
+  });
+});
+
+describe("validateImportPath on a reachable task", () => {
+  const ok = ["src/paths/start.ts", "src/paths/s1.ts", "src/paths/s2.ts", "src/paths/s3.ts"];
+  const t = {
+    category: "dependency_path",
+    expected: {
+      from: ok[0],
+      to: ok[3],
+      reachable: true,
+      example_path: ok,
+      path_edges: ok.slice(1).map((to, i) => [ok[i], to] as [string, string]),
+    },
+  } as DependencyPathTask;
+
+  it("rejects skipped hops, wrong ends and non-edges, and normalizes path spellings", () => {
+    expect(validateImportPath(t, ok).valid).toBe(true);
+    expect(validateImportPath(t, ok.map((f) => `./${f.replace(/\//g, "\\")}`)).valid).toBe(true);
+    expect(validateImportPath(t, [ok[0], ok[2], ok[3]]).reason).toBe("no import src/paths/start.ts -> src/paths/s2.ts");
+    expect(validateImportPath(t, ok.slice(1)).valid).toBe(false);
+    expect(validateImportPath(t, ok.slice(0, -1)).valid).toBe(false);
   });
 });
 

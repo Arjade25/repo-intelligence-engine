@@ -1,5 +1,5 @@
 import type { Task } from "../taskgen/generate.js";
-import { scoreImpact, validateCyclePath, validateTrapAnswer } from "../taskgen/validators.js";
+import { scoreImpact, validateCyclePath, validateImportPath, validateTrapAnswer } from "../taskgen/validators.js";
 
 /**
  * Turns an agent's free-text reply into a graded result. The task prompt is
@@ -13,6 +13,9 @@ const ANSWER_FORMATS: Record<Task["category"], string> = {
   cycle_trace:
     'End your reply with a fenced ```json code block of the form {"path": ["<file>", "<file>", ...]} ' +
     "listing the chain in order, starting and ending with the start file. Use paths relative to the repository root.",
+  dependency_path:
+    'End your reply with a fenced ```json code block of the form {"path": ["<file>", "<file>", ...]} ' +
+    'listing the chain in order, or {"path": null} if there is no such chain. Use paths relative to the repository root.',
   runtime_type_trap: 'End your reply with a fenced ```json code block of the form {"answer": "yes"} or {"answer": "no"}.',
   change_impact:
     'End your reply with a fenced ```json code block of the form {"files": ["<file>", ...]}. ' +
@@ -47,7 +50,7 @@ export function toRepoRelative(file: string, repoRoot: string): string {
 export interface Grade {
   parsed: boolean;
   correct: boolean;
-  /** 1/0 for cycle and trap tasks; F1 for change impact, where partial credit is meaningful. */
+  /** 1/0 for cycle, path and trap tasks; F1 for change impact, where partial credit is meaningful. */
   score: number;
   reason?: string;
   answer?: unknown;
@@ -68,6 +71,13 @@ export function gradeAnswer(task: Task, finalText: string, repoRoot: string): Gr
       const path = stringList(json.path);
       if (!path) return fail('expected {"path": [...]}', json);
       const verdict = validateCyclePath(task, path);
+      return { parsed: true, correct: verdict.valid, score: verdict.valid ? 1 : 0, reason: verdict.reason, answer: path };
+    }
+    case "dependency_path": {
+      // null or [] both mean "no path"; anything else must be a list of files.
+      const path = json.path === null ? null : stringList(json.path);
+      if (path === undefined) return fail('expected {"path": [...]} or {"path": null}', json);
+      const verdict = validateImportPath(task, path);
       return { parsed: true, correct: verdict.valid, score: verdict.valid ? 1 : 0, reason: verdict.reason, answer: path };
     }
     case "runtime_type_trap": {

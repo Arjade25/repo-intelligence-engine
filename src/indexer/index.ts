@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import { dirname, resolve } from "node:path";
 import { clearIndex } from "../storage/db.js";
 import { analyzeErasure, reExportHasValueMeaning } from "./erasure.js";
+import { findUnresolvedInternalImports, type UnresolvedImport } from "./resolution.js";
 
 /**
  * Batch indexer (plan §4, mode 1): a one-shot ts.Program walked once to populate
@@ -13,7 +14,7 @@ import { analyzeErasure, reExportHasValueMeaning } from "./erasure.js";
  * symbol/edge counts matching a hand-counted expectation, and at least one
  * barrel/side-effect import appears as a file->file edge with to_symbol_id NULL.
  */
-export function indexRepository(db: Database.Database, tsconfigPath: string): void {
+export function indexRepository(db: Database.Database, tsconfigPath: string): { unresolved: UnresolvedImport[] } {
   clearIndex(db);
 
   const { fileNames, options } = loadTsconfig(tsconfigPath);
@@ -35,6 +36,10 @@ export function indexRepository(db: Database.Database, tsconfigPath: string): vo
   for (const sourceFile of sourceFiles) {
     extractEdges(db, sourceFile, program, options, host, checker);
   }
+
+  // Reported, not thrown: a partial index is still useful, but the caller must be
+  // able to see that it is partial (see resolution.ts for how this was found).
+  return { unresolved: findUnresolvedInternalImports(program, options) };
 }
 
 /** Load a tsconfig.json into a fileNames + options pair (incl. path aliases). Shared

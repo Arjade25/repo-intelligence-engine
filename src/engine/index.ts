@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import type { SymbolRow } from "../storage/db.js";
 import { indexRepository, loadTsconfig } from "../indexer/index.js";
 import { createLanguageService, indexReferences } from "../indexer/references.js";
+import type { UnresolvedImport } from "../indexer/resolution.js";
 
 /**
  * Query engine (plan §5): pure functions over the SQLite index. This is the
@@ -71,6 +72,7 @@ export interface DependencyPath {
   // discloses every candidate and which one the path actually used, instead of
   // silently tie-breaking (the v1 behavior this replaced).
   ambiguity?: { symbol_a?: SymbolResolution; symbol_b?: SymbolResolution };
+  note?: string;          // set when a file-path end could not be matched to one indexed file
 }
 
 /** find_module(name): locate which file(s) define a symbol. */
@@ -249,15 +251,35 @@ export function findSymbolReferences(
   return result;
 }
 
+/** A path-looking argument (has a separator or a source-file extension) names a file, anything else a symbol. */
+function looksLikeFilePath(arg: string): boolean {
+  return /[\\/]/.test(arg) || /\.[cm]?[jt]sx?$/i.test(arg);
+}
+
 /**
- * dependency_path(a, b): resolve each symbol to its file, then BFS the file-level
  * edges (plan §7 — the one tool with real traversal, directed by `from_file ->
  * to_file`). Returns the shortest file chain, or found:false if no directed path
  * exists (imports are one-way, so a->b connected does not imply b->a connected).
+ *
+ * Each end is a symbol name OR a file path. Symbol-only ends made file-to-file
+ * questions unanswerable - a barrel like `index.ts` declares nothing to name - so
+ * an agent asked "does file A import file B?" had to fall back to grep.
  */
-export function dependencyPath(db: Database.Database, symbolA: string, symbolB: string): DependencyPath {
-  const candidatesA = filesOfSymbol(db, symbolA);
-  const candidatesB = filesOfSymbol(db, symbolB);
+export function dependencyPath(db: Database.Database, a: string, b: string): DependencyPath {
+  const notes: string[] = [];
+  const endpoint = (arg: string): string[] => {
+    if (!looksLikeFilePath(arg)) return filesOfSymbol(db, arg);
+    const { resolved, candidates } = resolveIndexedPath(db, arg);
+    if (resolved) return [resolved];
+    notes.push(
+      candidates.length > 1
+        ? `"${arg}" matches ${candidates.length} indexed files - pass a longer path: ${candidates.join(", ")}`
+        : `"${arg}" is not an indexed file.`
+    );
+    return [];
+  };
+  const candidatesA = endpoint(a);
+  const candidatesB = endpoint(b);
   const fileA = candidatesA[0];
   const fileB = candidatesB[0];
 
@@ -267,8 +289,11 @@ export function dependencyPath(db: Database.Database, symbolA: string, symbolB: 
   const ambiguity: DependencyPath["ambiguity"] = {};
   if (candidatesA.length > 1) ambiguity.symbol_a = { chosen: fileA, candidates: candidatesA };
   if (candidatesB.length > 1) ambiguity.symbol_b = { chosen: fileB, candidates: candidatesB };
-  const withAmbiguity = (result: DependencyPath): DependencyPath =>
-    ambiguity.symbol_a || ambiguity.symbol_b ? { ...result, ambiguity } : result;
+  const withAmbiguity = (result: DependencyPath): DependencyPath => ({
+    ...result,
+    ...((ambiguity.symbol_a || ambiguity.symbol_b) && { ambiguity }),
+    ...(notes.length > 0 && { note: notes.join(" ") }),
+  });
 
   if (!fileA || !fileB) return withAmbiguity({ found: false, chain: [] });
   if (fileA === fileB) return withAmbiguity({ found: true, chain: [fileA] });
@@ -471,12 +496,18 @@ function filesOfSymbol(db: Database.Database, name: string): string[] {
  * The transaction plus openDb's busy_timeout pragma make the whole operation
  * atomic and serialize concurrent writers instead of corrupting the data.
  */
-export function reindex(db: Database.Database, tsconfigPath: string): void {
+export interface ReindexResult {
+  /** Internal imports the compiler cannot resolve - non-empty means the index is partial. */
+  unresolved_internal_imports: UnresolvedImport[];
+}
+
+export function reindex(db: Database.Database, tsconfigPath: string): ReindexResult {
   const run = db.transaction(() => {
-    indexRepository(db, tsconfigPath);
+    const { unresolved } = indexRepository(db, tsconfigPath);
     const { fileNames, options } = loadTsconfig(tsconfigPath);
     const service = createLanguageService(fileNames, options);
     indexReferences(db, service);
+    return { unresolved_internal_imports: unresolved };
   });
-  run();
+  return run();
 }
