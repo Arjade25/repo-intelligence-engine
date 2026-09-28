@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS symbols (
 -- (`import './styles'`), and namespace imports (`import * as ns`) — all of which
 -- have no symbol on one end. `to_symbol_id` is an optional refinement: populated
 -- for named imports (`import { Foo }`), NULL otherwise. Symbol->file mapping for
--- the other end comes for free from symbols.file_path, so all five v1 tools
+-- the other end comes for free from symbols.file_path, so all six tools
 -- (including dependency_path, via file-level BFS) work without symbol-level edges.
 --
 -- NOTE (plan §12): to_file must be a RESOLVED absolute path. The indexer runs TS
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS edges (
   from_file TEXT NOT NULL,                       -- the importing module
   to_file TEXT NOT NULL,                         -- the imported module (resolved)
   to_symbol_id INTEGER REFERENCES symbols(id),   -- nullable: the specific named import, if any
-  edge_type TEXT NOT NULL,                        -- 'imports' for v1; extensible later
+  edge_type TEXT NOT NULL,                        -- 'imports', or 'reexport_star' for `export * from` / `export * as ns from`
   -- 1 for `import type { X }`, `import { type X }`, `export type { X } from`, etc.
   -- TypeScript ERASES these at compile time, so a type-only edge is a real source
   -- dependency but NOT a runtime one. Cycle detection defaults to excluding them:

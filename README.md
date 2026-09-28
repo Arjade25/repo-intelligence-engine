@@ -15,11 +15,13 @@ The engine parses a TypeScript repo with the **TypeScript Compiler API** and sto
 | `find_module(name)` | Which file(s) define this symbol? |
 | `find_related_files(file)` | What does this file import, and what imports it? |
 | `find_symbol_references(symbol)` | Everywhere this symbol is used |
-| `dependency_path(a, b)` | Is there an import path between two symbols, and what is it? |
-| `find_circular_dependencies()` | Which files form import cycles? |
-| `reindex(path?)` | Rebuild the index |
+| `dependency_path(a, b)` | Is there an import path from A to B, and what is it? Each end can be a symbol name or a file path |
+| `find_circular_dependencies()` | Which files form runtime import cycles? (Pass `include_type_only` to count erased imports too) |
+| `reindex()` | Rebuild the whole index, and report any internal imports that failed to resolve |
 
 The `engine/` functions are callable directly (CLI, tests) — the engine is the product. It also supports Claude Code and any other MCP-compatible client through an integrated MCP server.
+
+Every path-taking query accepts absolute or repo-relative paths, with either slash style, matched case-insensitively. When a path or name matches nothing, `find_related_files`, `find_symbol_references` and `dependency_path` say so explicitly (`file_indexed: false`, `symbol_indexed: false`, or a `note`) rather than returning a bare empty list. `find_module` still returns `[]`. Agents treat an empty list as "no results" and fall back to grep, which the benchmark caught happening (see † below). The MCP `reindex` tool accepts an optional `path` argument but ignores it: every rebuild covers the whole repo.
 
 ## Architecture
 
@@ -30,19 +32,19 @@ The `engine/` functions are callable directly (CLI, tests) — the engine is the
   ┌───────────────────┐   TS Compiler API, two modes:
   │      Indexer      │   • ts.Program        → symbols + import edges (batch)
   │  src/indexer/     │   • ts.LanguageService → findReferences (separate pass)
-  └───────────────────┘
-          │
+  └───────────────────┘   plus erasure.ts (is this import erased at emit?)
+          │               and resolution.ts (which internal imports don't resolve?)
           ▼
   ┌───────────────────┐   symbols     (name, kind, file, line)
-  │  Index (SQLite)   │   edges       (from_file → to_file, file-level)
-  │  src/storage/     │   references_ (symbol → use site)
-  └───────────────────┘
+  │  Index (SQLite)   │   edges       (from_file → to_file, file-level,
+  │  src/storage/     │                is_type_only, imports | reexport_star)
+  └───────────────────┘   references_ (symbol → use site)
           │
           ▼
   ┌───────────────────┐   pure functions over the index —
   │   Query Engine    │   find_module, find_related_files,
-  │  src/engine/      │   find_symbol_references, dependency_path, reindex
-  └───────────────────┘
+  │  src/engine/      │   find_symbol_references, dependency_path,
+  └───────────────────┘   find_circular_dependencies, reindex
           │
           ▼
   ┌───────────────────┐   thin adapter: parse args → call engine.
@@ -56,19 +58,43 @@ The `engine/` functions are callable directly (CLI, tests) — the engine is the
 
 Two design decisions worth calling out:
 
-- **Edges are file-level, not symbol-level.** An import statement lives at file scope — no single symbol "owns" it — and barrel re-exports, side-effect imports (`import './styles'`), and namespace imports have no symbol on one end at all. Storing `from_file → to_file` represents all of them cleanly; `symbols.file_path` bridges back to symbols for free, so `dependency_path` still answers symbol-to-symbol questions by resolving each end to its file and running a BFS over the edge table.
+- **Edges are file-level, not symbol-level.** An import statement lives at file scope — no single symbol "owns" it — and barrel re-exports, side-effect imports (`import './styles'`), and namespace imports have no symbol on one end at all. Storing `from_file → to_file` represents all of them cleanly. `symbols.file_path` bridges back to symbols for free, so `dependency_path` resolves each end to a file and runs a BFS over the edge table. An end can be a symbol name or a file path; an argument with a slash or a source-file extension is treated as a path. File ends make a barrel like `index.ts`, which declares no symbol of its own, a valid endpoint. The BFS follows every edge, type-only ones included, because the question is about imports, not runtime.
 - **The MCP server is an adapter, not the product.** Everything is callable without MCP in the loop, which is what keeps the core testable — a test asserts that an MCP call and the equivalent direct engine call return identical results.
 
 ## Benchmark
 
-Measured against [TypeORM](https://github.com/typeorm/typeorm) @ `04ff4dae` — 496 source files, 1,108 indexed symbols, 2,750 import edges. Nine fixed navigation tasks with pre-registered oracle answers (verified by independent grep, not engine output), run under two arms with Claude Code in headless mode:
+Every measurement below runs Claude Code in headless mode under two arms:
 
-- **baseline** — built-in tools only (Read/Grep/Glob)
-- **assisted** — same tools **plus** this engine's MCP server
+- **baseline**: built-in tools only (Read/Grep/Glob)
+- **assisted** (called `rie` in the generated-task harness): the same tools **plus** this engine's MCP server
 
-Protocol: fresh session per run (no cross-run contamination), 5 runs per arm per task, medians reported, metrics machine-counted from session transcripts (`tool_use` blocks and per-turn token usage), never hand-tallied. The only difference between arms is `--mcp-config`; both receive the same built-in toolset.
+Protocol: a fresh session for every run, so no run sees another's context. 5 runs per arm per task, with medians reported. Metrics are machine-counted from session transcripts (`tool_use` blocks and per-turn token usage), never hand-tallied. The only difference between the arms is `--mcp-config`; both get the same built-in toolset.
 
-### Where the engine does *not* help
+There are two harnesses. They answer different questions:
+
+| | `npm run bench` (`benchmarks/run.ts`) | `npm run harness` (`benchmarks/harness/`) |
+|---|---|---|
+| Tasks | Hand-written, with pre-registered oracle answers verified by independent grep | Generated from compiler ground truth (`npm run taskgen`), never from RIE's index |
+| Correctness | `located_oracle` substring check, plus reading transcripts by hand | Graded: the last JSON block of each answer is scored by the task's validator |
+| Targets | TypeORM, nest | nest |
+| Raw data | `benchmarks/results/*.json` | `benchmarks/results/harness/*.json`, with the exact task set alongside as `*.tasks.json` |
+
+### At a glance
+
+| Target · task set | Tasks × runs per arm | Baseline | Assisted | Takeaway |
+|---|---|---|---|---|
+| TypeORM · simple lookups | 6 × 5 | 13 calls total | 9 calls total | Roughly a wash; the savings come from the path tasks |
+| TypeORM · 7-hop import path | 1 × 5 | 21 calls / 607K tokens | **1 / 40.7K** | ~15× fewer tokens |
+| TypeORM · runtime cycle check | 1 × 5 | 22 calls / 1.24M tokens | **1 / 26.7K** | ~46× fewer tokens |
+| nest · hand-written (4 tasks) | 4 × 5 | see [below](#hand-written-tasks-nest) | | 2 wins (one ~107×), 2 losses |
+| nest · generated cycle / trap / impact | 27 × 5 | 133/135 correct, 101.5K tokens per correct | 134/135, 112.7K | Tie on accuracy; assisted **~11% more expensive** |
+| nest · generated dependency paths | 10 × 5 | 50/50 correct, 345K tokens per correct | **50/50, 164K** | ~2.1× cheaper, half the tool calls |
+
+### Hand-written tasks: TypeORM
+
+Measured against [TypeORM](https://github.com/typeorm/typeorm) @ `04ff4dae`: 496 source files, 1,108 indexed symbols, 2,750 import edges. Nine fixed navigation tasks (`benchmarks/tasks.json`). These counts were re-verified on 2026-09-28 by re-indexing with the now-committed `benchmarks/tsconfig.rie.typeorm.json`. That also gives 1,565 erased edges, 189 star re-exports and 13,517 references, 0 unresolved imports, and 0 runtime cycles (227 + 2 files with type-only edges counted).
+
+#### Where the engine does *not* help
 
 The original six tasks are ones a competent agent already answers in one or two well-chosen greps:
 
@@ -84,7 +110,7 @@ The original six tasks are ones a competent agent already answers in one or two 
 
 ~30% fewer calls, concentrated entirely in the path tasks. Every run in both arms located its oracle answer. A modern agent's grep baseline is strong, and single-symbol lookups have no headroom to win.
 
-### Where it does
+#### Where it does
 
 Three later tasks target question shapes text search should struggle with: a deep transitive path, a whole-graph property, and a name grep massively over-counts. Only the first two held up — the third is kept as a negative result (‡):
 
@@ -98,13 +124,73 @@ The two traversal tasks cost ~15x and ~46x fewer tokens. The assisted arm answer
 
 The cycle task is the sharpest case, because the *quality* of the answer differs, not just its cost. The baseline reached the right conclusion — "no runtime cycles" — but hedged it explicitly as *"based on my sampling"*, after inspecting roughly 25 of 496 files across 22 tool calls and 1.2M tokens. Reading files cannot prove a negative about a graph. `find_circular_dependencies()` returns a deterministic Tarjan result over all 2,750 edges. Both answers agree; only one of them is verified.
 
-**Overall reading:** this is not "faster than grep." It is roughly a wash on questions grep already handles well, and a large, repeatable win on multi-hop and whole-graph questions — the two things text search structurally cannot do. Baseline cost varies widely run to run (15–24 calls on the path task, 14–29 on the cycle task), so these ratios are measured medians, not guarantees.
+Baseline cost varies widely from run to run (15–24 calls on the path task, 14–29 on the cycle task), so these ratios are measured medians, not guarantees.
 
 **Metric caveat:** the harness also records `located_oracle`, a substring check for an oracle filename in the final answer. It is a smoke detector, not a grader. It reads `false` for a perfectly correct answer that never restates the filename — which happens when the prompt itself already names the file — and for correct answers to questions whose oracle names no file at all, like the cycle task. Treat calls and tokens as the measurements; read transcripts to judge correctness.
 
 **† What the benchmark caught:** the first measurement of the impact task showed the assisted arm *losing* (median 5 calls vs. 3, spread up to 11). Transcripts revealed an interface bug, not a data bug: the engine's path-taking tools did exact string matching, so the Windows-style backslash and repo-relative paths agents naturally pass returned empty results — and one tool answered *"symbol not indexed"* when only the path filter had failed. Agents did the rational thing and fell back to grep, doubling the work. After fixing path resolution (normalization + unique-suffix matching + honest "filter dropped" notes), the task flipped to a win and run-to-run variance collapsed from 3–11 calls to 2–3. The raw per-run data for both measurements is in `benchmarks/results/`.
 
 **‡ A task that failed, kept deliberately.** The reference-count task was designed as a trap: `grep -w Entity` returns 684 hits across 72 files — ~114x the 6 real references — because `Entity` is TypeORM's ubiquitous generic type-parameter name (`Repository<Entity>`, `QueryBuilder<Entity>`). Neither arm fell for it. Both immediately grepped `Entity\(` with the paren, which is highly discriminating for a callable, and collapsed 684 hits to ~7 files in a single call. The task is retained as a negative result, because it marks the boundary of the claim above: name-overcount is only grep-hostile for symbols used in *type position*, where a usage is a bare name indistinguishable from a type parameter. For functions and decorators, `Name(` and `@Name` hand grep a precise handle. An earlier N=1 measurement of this task showed the assisted arm losing badly (18 calls vs 13); at N=5 that reversed to a slight win. Both readings were mostly noise — the baseline arm alone moved from 13 calls to a median of 6 between runs, and the baseline never touches the MCP server.
+
+### Hand-written tasks: nest
+
+Measured against [nestjs/nest](https://github.com/nestjs/nest) @ `40d07dc6`: 664 non-spec source files, 1,473 indexed symbols, 3,442 file-level edges. Four tasks (`benchmarks/tasks-nest.json`), 5 runs per arm. Medians:
+
+| Task | Baseline (calls / tokens) | Assisted (calls / tokens) | |
+|---|---|---|---|
+| Impact: who imports `Injector`? | **5 / 82,321** | 5 / 120,202 | Assisted uses ~46% more tokens |
+| Import path `ClientProxyFactory` → `NestContainer` | 10 / 156,786 | **6 / 79,238** | ~2× fewer tokens |
+| Is `ParseUUIDPipe` public API, and how? | **4 / 40,497** | 5 / 68,074 | Negative result, kept |
+| Are there any runtime import cycles? | 44 / 6,317,943 | **3 / 58,832** | ~107× fewer tokens |
+
+The cycle question again separates the two arms most. It also separates them on answer quality, not just cost. All 5 assisted runs named both 4-file runtime cycle groups and all four distinctive member files. The baseline read its way to the same answer in 4 of 5 runs, spending 6.3M tokens per run at the median; in the fifth run it declined to answer. The two import-impact and public-API questions went the other way: a grep for the class name or its import line answers them directly, and the MCP arm paid for tool calls that added nothing. On `ParseUUIDPipe`, all 10 runs were correct, and the task's grep-hostile premise did not hold (see its oracle note in `tasks-nest.json`).
+
+The baseline figures are from `nest-2026-09-22T19-39-36-345Z.json`. The assisted figures are from the re-run `nest-2026-09-22T19-46-46-266Z.json`, because the nest index was rebuilt partway through the first run. [`benchmarks/results/README.md`](benchmarks/results/README.md) explains the pairing.
+
+### Generated, graded tasks: nest
+
+The hand-written tasks each have a single answer that a person picked. The generated set removes that selection step. `npm run taskgen` derives tasks and their answers from the real `tsc` emit and a re-type-check of nest. `npm run harness` then grades every answer, so accuracy is measured rather than judged. Model: `claude-opus-5-5` on every run. Claude Code 2.1.280. 5 runs per arm per task, with arm order rotated. Neither run had a crashed session.
+
+**Run 1: cycle tracing, runtime-vs-type traps, change impact** (27 tasks, 270 sessions, `nest-full-2026-09-27T10-43-36Z.json`)
+
+| Category | Tasks | Baseline correct | Assisted correct | Tokens per correct (baseline → assisted) | Median tokens [IQR] (baseline → assisted) | Median calls |
+|---|---|---|---|---|---|---|
+| cycle_trace | 8 | 40/40 | 40/40 | 60,469 → 70,881 | 56,003 [46,113–79,901] → 67,393 [63,759–75,215] | 5 → 5 |
+| runtime_type_trap | 10 | 49/50 | 50/50 | 91,955 → 92,941 | 69,359 [52,769–117,436] → 74,297 [64,503–103,923] | 5 → 5 |
+| change_impact | 9 | 44/45 | 44/45 | 149,559 → 173,021 | 134,325 [116,912–158,620] → 154,546 [125,704–188,434] | 6 → 6 |
+| **All** | **27** | **133/135** | **134/135** | **101,543 → 112,651** | 82,377 → 85,179 | 5 → 5 |
+
+On these tasks the engine did not pay for itself. Accuracy is at the ceiling in both arms: 3 wrong answers out of 270 runs. The baseline missed one because it gave no parseable JSON block, and another because it listed one extra file. The assisted arm missed one by leaving out one file. Tokens per correct answer are ~11% higher with the engine loaded, and the assisted arm had the lower median on only 9 of the 27 tasks. Two things explain most of this:
+
+- **Grep already reaches the answer.** nest has only two runtime cycles, 4 files each, and the shortest loop through any member is 3 files. That is why nest's task file lowers `--min-path` to 3. A 3-file loop leaves little traversal for an index to save. The change-impact sets are large (7–50 files, median 35), but the question "which files use this export?" starts from a name, and a name search finds those files: the baseline got 44 of 45 right with a median of 6 calls.
+- **The assisted arm often didn't use the engine.** It called an RIE tool in all 40 cycle-trace runs, 31 of 50 trap runs and only 13 of 45 change-impact runs. Across the change-impact runs it made 195 Grep calls and 13 RIE calls. It solved those tasks the same way the baseline did.
+
+**Run 2: dependency paths** (10 tasks, 100 sessions, `nest-paths-2026-09-27T14-57-18Z.json`)
+
+"Can you get from file A to file B by following imports?" Five tasks have a path, and the shortest one is 12–14 hops long; any valid chain is accepted. Five have no path, even though A transitively imports at least 25 files.
+
+| Subset | Baseline correct | Assisted correct | Tokens per correct (baseline → assisted) | Median tokens (baseline → assisted) | Median calls |
+|---|---|---|---|---|---|
+| Path exists (5 tasks) | 25/25 | 25/25 | 423,378 → **122,454** | 400,621 → **124,859** | 17 → 6 |
+| No path (5 tasks) | 25/25 | 25/25 | 267,059 → **206,076** | 232,812 → **205,072** | 12 → 9 |
+| **All** | **50/50** | **50/50** | **345,218 → 164,265** | 319,582 [232,335–449,270] → 135,195 [101,106–208,889] | 14 → 7 |
+
+Both arms answered all 100 runs correctly. The assisted arm got there with ~2.1× fewer tokens per correct answer, half the tool calls, and a median wall time of 29 s against 47 s. It had the lower median on 9 of the 10 tasks, and it used `dependency_path` or `find_related_files` in all 50 of its runs.
+
+The saving is concentrated where the claim predicts. When a path exists, `dependency_path` returns the whole 12–14-hop chain in one query: ~3.2× fewer tokens by median, with 25 RIE calls across 25 runs. Proving that *no* path exists saved much less, ~1.1× by median. In those runs the agent did not accept `found: false` on its own. It followed up with 38 `find_related_files` calls and 30 file reads (against 7 reads when a path existed), walking the import graph by hand to confirm the negative. A more explicit "no path" answer, for example one that states how many files were searched, is the obvious next thing to try.
+
+### Overall reading
+
+This is not "faster than grep." Where a name search can answer the question directly, the engine is a wash or a cost:
+- TypeORM's single-symbol lookups
+- nest's generated cycle, trap and impact tasks, where the assisted arm spent ~11% more tokens per correct answer
+- nest's hand-written impact and public-API questions, where it spent ~46% and ~68% more tokens
+
+The large, repeatable wins all come from multi-hop and whole-graph questions, the two things text search structurally cannot do:
+- long import paths: ~15× fewer tokens on TypeORM, and ~3.2× on nest paths that exist
+- runtime-cycle detection over a whole repo: ~46× fewer tokens on TypeORM, and ~107× on nest
+
+In the 370 graded sessions, accuracy was essentially the same in both arms (183/185 baseline, 184/185 assisted). On these tasks, the engine changes what a correct answer costs, not whether the agent finds it.
 
 ## Circular dependency detection
 
@@ -137,7 +223,11 @@ TypeORM passes this test for a reason that does not generalize: its authors writ
 | value-position analysis | **2 groups — 4 and 4 files** |
 | emit-verified ground truth | **2 groups — 4 and 4 files**, same members |
 
-Ground truth here is not the engine's own output. It was measured by building a real `ts.Program`, emitting with `module: CommonJS`, reading the surviving `require()` calls out of the emitted JavaScript and running Tarjan on those — an import the compiler elides cannot cause a runtime cycle, one that becomes a `require()` can. That run covered 664 files with zero diagnostics and zero unresolved internal specifiers. TypeORM re-measured against the same oracle is unchanged at 0.
+Ground truth here is not the engine's own output. It comes from `benchmarks/oracle/emitted-edges.ts`, which builds a real `ts.Program` and emits every file. It then reads which imports survive into the emitted JavaScript, as `require()` calls or retained ESM `import`/`export` statements, and runs its own Tarjan on those. An import the compiler elides cannot cause a runtime cycle; one it keeps can. The oracle leaves the repo's `module` and `moduleResolution` settings alone. An earlier version forced `module: CommonJS`, and TypeScript rejects that combination (TS5110) under the `Node16` resolution that nest uses. TypeORM re-measured against the same oracle is unchanged at 0 runtime cycles.
+
+Edge by edge, TypeORM (re-run 2026-09-28) has 1,144 runtime pairs on each side. 1,143 agree, 1 is a safe over-report, and **1 is a real runtime edge RIE doesn't see**: `src/cli-ts-node-esm.ts` loads `./cli` with a bare `require("./cli")` call inside an `if`. That is a function call, not an import declaration. The indexer walks `import`, `export … from` and `import x = require()` statements only, so it records no edge, while the emitted JavaScript keeps the `require()`. It doesn't change TypeORM's answer, since neither side finds a cycle. But it is a real gap in the dangerous direction: a repo that loads its own modules through bare `require()` calls can have runtime cycles RIE won't report. `npm run oracle` exits 1 on TypeORM for this reason.
+
+**Re-verified 2026-09-28** at nest @ `40d07dc6`, with the committed `benchmarks/tsconfig.rie.nest.json`. The oracle covered 664 files. `src/indexer/resolution.ts` reports **0 unresolved internal imports** under the compiler's own ESM/CJS resolution mode (see [Unresolved imports](#unresolved-imports)). RIE and the oracle both find 2 runtime groups of 4 files each. Counting type-only edges as well, RIE reports 69, 54, 27, 10, 6, 2 and 2.
 
 Two traps surfaced while building that oracle, both of which produced a clean-looking wrong number:
 
@@ -153,6 +243,8 @@ Component counts are a coarse check — two graphs can agree on cycles and still
 | agree with emitted output | 2,153 |
 | erased by the compiler, reported as runtime | 29 |
 | real runtime edge, reported as erased | **0** |
+
+`npm run oracle` reproduces this table. The 2026-09-28 re-run found RIE marking 1,469 distinct pairs as runtime. Of those, 1,440 agree with the oracle's 1,440 runtime pairs and 29 are safe over-reports; the other 713 pairs agree as erased; and none are hidden. That is the same 2,153 / 29 / 0 split as above.
 
 The two directions are not equally serious. Reporting a runtime edge that the compiler erases can only ever *over*-report a cycle; missing a real one can *hide* one. The first pass of this analysis had 3 of the dangerous kind, all `@Injectable()` classes taking a constructor dependency: `emitDecoratorMetadata` re-emits a decorated declaration's parameter and property types as `design:paramtypes`/`design:type`, so those imports survive despite appearing only in type position. The indexer now treats metadata positions as value uses when the option is on, which takes that column to zero.
 
@@ -184,6 +276,42 @@ Without `re_exported_by`, the tool reports a live public API as having zero uses
 
 This was found by reading benchmark transcripts, not by design review: on the reference-count task, both arms independently identified the `index.ts` re-export as the answer while the engine did not report it.
 
+## Unresolved imports
+
+An internal import that the compiler can't resolve doesn't fail loudly anywhere. The edge extractor drops it, and the type-checker reports TS2307 and treats the binding as an error type. As a result, every downstream answer that depends on it is wrong without any sign of it: edges, references, and compile impact.
+
+This happened on nest. Every nest package is `"type": "module"`, so under `module: Node16` its imports resolve in ESM mode. In ESM mode, a `paths` alias that points at a *directory* never resolves. **556 cross-package imports** were unresolved and nothing said so. A plain `ts.resolveModuleName` call, which is what the edge extractor makes, defaults to CJS mode and resolved every one of them. So the edges looked complete, and the damage showed up only in answers that go through the type-checker: references and change impact.
+
+`src/indexer/resolution.ts` now checks every relative or `paths`-alias import using the per-import resolution mode the compiler itself uses. The result is reported, not thrown, since a partial index is still useful as long as it is known to be partial:
+
+| Caller | Does |
+|---|---|
+| `reindex()` (engine) | Returns `unresolved_internal_imports` |
+| `npm run index` | Prints a `WARNING` with examples |
+| MCP `reindex` tool | Adds a `warning` field to its result |
+| `npm run harness` | Refuses to benchmark against a partial index |
+| `npm run taskgen` | Refuses to generate, unless given `--allow-unresolved` |
+
+The fix for nest was to point the aliases at files (`"@nestjs/common": ["./packages/common/index.ts"]`), which is what the committed `benchmarks/tsconfig.rie.nest.json` does. With it, nest has 0 unresolved imports.
+
+## Test suite
+
+`npm test` runs **146 tests in 11 files, all passing** (vitest, 2026-09-28). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, esm-alias and taskgen. They don't need a cloned benchmark target.
+
+| File | Covers | Tests |
+|---|---|---|
+| `src/engine/index.test.ts` | All six queries, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path `dependency_path` | 39 |
+| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure | 25 |
+| `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed | 21 |
+| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()` and NodeNext | 19 |
+| `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading, summaries (stub agent) | 10 |
+| `src/indexer/erasure.test.ts` | Value-position analysis, `verbatimModuleSyntax` gate | 8 |
+| `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call | 8 |
+| `benchmarks/oracle/tarjan.test.ts` | Independent SCC implementation | 6 |
+| `src/indexer/references.test.ts` | `findReferences` union across alias groups | 4 |
+| `src/indexer/resolution.test.ts` | Unresolved internal import detection (ESM directory aliases) | 4 |
+| `src/engine/reindex.test.ts` | A full rebuild is idempotent and reflects added and removed files | 2 |
+
 ## Development
 
 ```bash
@@ -202,9 +330,33 @@ npm run harness -- --config=nest --runs=5   # run them per tool arm, grade, and 
 
 `npm run taskgen` builds benchmark tasks from compiler ground truth, never from RIE's index: cycle tracing (graded by a validator that accepts any runtime cycle through the start file), dependency paths ("can you get from A to B by following imports?": half are chains of at least `--min-hops` hops, default 5, and any valid chain is accepted; half have no path, even though A transitively imports at least `--min-closure` files, default 25, and B sits next door and usually reaches A; answering "no" means ruling out that whole set), runtime-vs-type traps (yes/no pairs, where every "no" is a cycle that only closes through an erased import), and change impact (the answer comes from actually removing the export in memory and re-type-checking). A task is dropped when it hinges on fewer than `--min-path` files (default 4; a task file can set `taskgen.min_path`, and nest uses 3 because its only runtime cycles are 3-file loops). A change-impact task is also dropped when a broken named re-export (`export { X } from`) shields importers: TypeScript's error recovery still resolves `X` through the broken line, so those importers compile, which no reader of the source would predict. Every prompt states its scope (only the files the tsconfig includes), since the ground truth covers nothing else. Generation refuses to run if any internal import fails to resolve under the compiler's own ESM/CJS resolution mode (`--allow-unresolved` overrides): such an import is a baseline type error, so the impact oracle can't see anything break through it. On nest, directory-style `paths` aliases in `"type": "module"` packages caused exactly this, hiding every cross-package file. `reindex` reports the same check, and the harness won't benchmark against a partial index. Each task carries difficulty tags (SCC size, path length, barrels, aliases, type-only distractors) and the tsconfig flags it was generated under. Output is deterministic for a given `--seed`.
 
-`npm run oracle` is the reusable form of the manual validation described above under "Checking it edge by edge": it compiles the target repo for real (`benchmarks/oracle/emitted-edges.ts`), reads which imports actually survive into emitted output, and diffs that against RIE's own index — printing the same agree / safe-over-report / dangerous-hidden-edge breakdown, plus an SCC comparison. It shares no code with `src/indexer` or `src/engine`, by design: it's the check that would catch a bug in either.
+`npm run oracle` is the reusable form of the manual validation described above under "Checking it edge by edge": it compiles the target repo for real (`benchmarks/oracle/emitted-edges.ts`), reads which imports actually survive into emitted output, and diffs that against RIE's own index — printing the same agree / safe-over-report / dangerous-hidden-edge breakdown, plus an SCC comparison. The ground-truth side (`emitted-edges.ts` and its own `tarjan.ts`) shares no code with `src/indexer` or `src/engine`, by design: it's the check that would catch a bug in either. Only the comparison script, `compare.ts`, imports the engine, because the engine is what it diffs against. It exits 1 if any real runtime edge is reported as erased.
+
+### Setting up a benchmark target
+
+The target repos are not committed. Each one is reproducible from its task file's `repo.url` and `repo.commit`. For nest, which the checked-in `.mcp.json` points at:
+
+```bash
+git clone https://github.com/nestjs/nest.git benchmarks/target-repo-nest
+git -C benchmarks/target-repo-nest checkout 40d07dc62ccb41686859b804f8523ae0e2dd1984
+cp benchmarks/tsconfig.rie.nest.json benchmarks/target-repo-nest/tsconfig.rie.json
+npm run build
+npm run index -- benchmarks/target-repo-nest/tsconfig.rie.json benchmarks/nest-index.db
+```
+
+The index takes about 40 s: 1,473 symbols, 3,442 edges and 10,082 references. Until it exists, the MCP server in `.mcp.json` opens an empty database and every query returns nothing. TypeORM works the same way, from `benchmarks/tasks.json`:
+
+```bash
+git clone https://github.com/typeorm/typeorm.git benchmarks/target-repo
+git -C benchmarks/target-repo checkout 04ff4daedcf60fa4ffd0d5d33bbafaac1a9bbc96
+cp benchmarks/tsconfig.rie.typeorm.json benchmarks/target-repo/tsconfig.rie.json
+npm run index -- benchmarks/target-repo/tsconfig.rie.json benchmarks/typeorm-index.db
+```
+
+TypeORM's own `tsconfig.json` extends `@tsconfig/node20`, which resolves only after TypeORM's `node_modules` is installed. `tsconfig.rie.typeorm.json` inlines those base options and keeps TypeORM's own compiler options unchanged, including `emitDecoratorMetadata`, which decides which imports are erased. It also narrows `include` to `src/`. Indexing with it reproduces the published counts exactly.
 
 The benchmark harness needs the standalone `claude` CLI on `PATH`. If it is installed but a
 shell started before it was added to `PATH` cannot see it, the harness falls back to the
 standard `~/.local/bin` location; set `RIE_CLAUDE_BIN` to override explicitly. Useful flags:
-`--tasks=id,id`, `--arms=baseline,assisted`, `--runs=N`, `--skip-build`.
+`npm run bench` takes `--config=nest`, `--tasks=id,id`, `--arms=baseline,assisted`, `--runs=N`, `--skip-build`;
+`npm run harness` takes `--config=nest`, `--tools=baseline,rie`, `--category=…`, `--task-ids=id,id`, `--limit=N`, `--runs=N`, `--dry-run`, `--skip-build`.
