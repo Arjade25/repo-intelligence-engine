@@ -1,0 +1,11 @@
+{
+  "repo": {
+    "name": "pixijs",
+    "dir": "candidates/pixijs",
+    "url": "https://github.com/pixijs/pixijs.git",
+    "commit": "ef0c0a79b4e147d2ba8cf3b26b5efcb13f3ca307",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "pixijs src, 716 non-test files. Used for runtime-vs-type trap tasks: 0 runtime cycles, but a 227-file cycle group once type-only imports count. Clone sparsely (src/, root *.json) and copy candidates-config/pixijs.tsconfig.rie.json to tsconfig.rie.json."
+  },
+  "tasks": []
+}

@@ -1,0 +1,41 @@
+{
+  "tsconfig": "benchmarks/candidates/n8n/packages/cli/tsconfig.rie.json",
+  "files": 2052,
+  "unresolved_internal": 0,
+  "long_threshold": 6,
+  "source_groups": [
+    81,
+    24,
+    12,
+    7,
+    5,
+    4,
+    4,
+    3,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2
+  ],
+  "runtime_groups": [
+    {
+      "size": 4,
+      "median_loop": 3,
+      "max_loop": 4,
+      "long_members": 0,
+      "histogram": {
+        "3": 3,
+        "4": 1
+      },
+      "longest_loop_member": "src/public-api/v1/openapi-gen/decorator-routes.ts"
+    }
+  ],
+  "overall": {
+    "members": 4,
+    "median_loop": 3,
+    "max_loop": 4,
+    "long_members": 0
+  }
+}

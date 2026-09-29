@@ -1,5 +1,11 @@
 import type { Task } from "../taskgen/generate.js";
-import { scoreImpact, validateCyclePath, validateImportPath, validateTrapAnswer } from "../taskgen/validators.js";
+import {
+  scoreImpact,
+  validateCyclePath,
+  validateImportPath,
+  validateTrapAnswer,
+  type BrokenDirection,
+} from "../taskgen/validators.js";
 
 /**
  * Turns an agent's free-text reply into a graded result. The task prompt is
@@ -16,7 +22,10 @@ const ANSWER_FORMATS: Record<Task["category"], string> = {
   dependency_path:
     'End your reply with a fenced ```json code block of the form {"path": ["<file>", "<file>", ...]} ' +
     'listing the chain in order, or {"path": null} if there is no such chain. Use paths relative to the repository root.',
-  runtime_type_trap: 'End your reply with a fenced ```json code block of the form {"answer": "yes"} or {"answer": "no"}.',
+  runtime_type_trap:
+    'End your reply with a fenced ```json code block of the form {"answer": "yes"}, or ' +
+    '{"answer": "no", "no_runtime_path": "a_to_b" | "b_to_a" | "both"} where a is the first file named ' +
+    "in the question and b the second, naming the direction(s) with no runtime import path.",
   change_impact:
     'End your reply with a fenced ```json code block of the form {"files": ["<file>", ...]}. ' +
     "Use paths relative to the repository root. Use an empty list if no file would fail.",
@@ -89,8 +98,22 @@ export function gradeAnswer(task: Task, finalText: string, repoRoot: string): Gr
             ? false
             : undefined;
       if (answer === undefined) return fail('expected {"answer": "yes"|"no"}', json);
-      const correct = validateTrapAnswer(task, answer);
-      return { parsed: true, correct, score: correct ? 1 : 0, answer };
+      const rawBroken = json.no_runtime_path;
+      const broken =
+        typeof rawBroken === "string" && /^(a_to_b|b_to_a|both)$/.test(rawBroken.trim())
+          ? (rawBroken.trim() as BrokenDirection)
+          : undefined;
+      if (!answer && rawBroken !== undefined && broken === undefined) {
+        return fail('expected "no_runtime_path": "a_to_b" | "b_to_a" | "both"', json);
+      }
+      const verdict = validateTrapAnswer(task, answer, broken);
+      return {
+        parsed: true,
+        correct: verdict.valid,
+        score: verdict.valid ? 1 : 0,
+        reason: verdict.reason,
+        answer: broken ? { answer, no_runtime_path: broken } : answer,
+      };
     }
     case "change_impact": {
       const files = stringList(json.files);

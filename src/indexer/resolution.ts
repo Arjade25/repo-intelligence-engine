@@ -32,11 +32,21 @@ export function findUnresolvedInternalImports(
     const star = key.indexOf("*");
     return star === -1 ? { prefix: key, suffix: "", exact: true } : { prefix: key.slice(0, star), suffix: key.slice(star + 1), exact: false };
   });
-  const isInternal = (spec: string) =>
-    spec.startsWith(".") ||
-    aliasPatterns.some((p) =>
-      p.exact ? spec === p.prefix : spec.length >= p.prefix.length + p.suffix.length && spec.startsWith(p.prefix) && spec.endsWith(p.suffix)
+  // Bundler asset imports (`./logo.svg`, `./icon.svg?react`, `./x.css`) aren't
+  // modules the compiler resolves, and can't sit on an import cycle. Flagging them
+  // blocked element-web, which has 51 of them. Any `?query` specifier is a bundler
+  // loader (`./exportJS.js?raw` loads the file as text), never a module import.
+  const isAsset = (spec: string) =>
+    spec.includes("?") ||
+    /\.(svg|png|jpe?g|gif|webp|avif|ico|css|pcss|postcss|scss|sass|less|woff2?|ttf|otf|eot|mp3|mp4|ogg|wav|webm|wasm|html|txt|md|vert|frag|glsl|wgsl)$/i.test(
+      spec.replace(/[?#].*$/, "")
     );
+  const isInternal = (spec: string) =>
+    !isAsset(spec) &&
+    (spec.startsWith(".") ||
+      aliasPatterns.some((p) =>
+        p.exact ? spec === p.prefix : spec.length >= p.prefix.length + p.suffix.length && spec.startsWith(p.prefix) && spec.endsWith(p.suffix)
+      ));
 
   const out: UnresolvedImport[] = [];
   for (const sf of program.getSourceFiles()) {

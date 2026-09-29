@@ -1,0 +1,11 @@
+{
+  "repo": {
+    "name": "babylon",
+    "dir": "candidates/babylon/packages/dev/core",
+    "url": "https://github.com/BabylonJS/Babylon.js.git",
+    "commit": "b1bc84e81cc14dac01d5c0699467972f212605d2",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "Babylon.js packages/dev/core, 2,673 non-test src files. Used for runtime-vs-type trap tasks: 0 runtime cycles, but a 2,260-file cycle group once type-only imports count, so every trap is a 'no' that source reading makes look like a 'yes'. 433 imports point at shader modules the build generates from .fx sources; each can only import Engines/shaderStore (which imports one enum), so none can sit on a cycle - generate with --allow-unresolved. Clone sparsely (packages/dev/, packages/public/, root *.json) and copy candidates-config/babylon-core.tsconfig.rie.json to packages/dev/core/tsconfig.rie.json."
+  },
+  "tasks": []
+}

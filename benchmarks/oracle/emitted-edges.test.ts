@@ -150,6 +150,18 @@ describe("computeEmittedEdges (fixtures/const-enum-repo)", () => {
   }
 });
 
+describe("computeEmittedEdges: unresolved internal imports", () => {
+  it("flags the ESM directory alias and the missing relative import, not the file alias or node:fs", () => {
+    // The same two src/indexer/resolution.test.ts finds, computed independently.
+    const { unresolvedInternal } = computeEmittedEdges(join(FIXTURES, "esm-alias-repo/tsconfig.json"));
+    expect(unresolvedInternal.map((u) => u.specifier).sort()).toEqual(["./missing.js", "@dir"]);
+  });
+
+  it("is empty when every internal import resolves", () => {
+    expect(computeEmittedEdges(join(FIXTURES, "sample-repo/tsconfig.json")).unresolvedInternal).toEqual([]);
+  });
+});
+
 describe("computeEmittedEdges (fixtures/sample-repo)", () => {
   const { edges } = computeEmittedEdges(join(FIXTURES, "sample-repo/tsconfig.json"));
 
