@@ -35,7 +35,17 @@ CREATE TABLE IF NOT EXISTS edges (
   -- dependency but NOT a runtime one. Cycle detection defaults to excluding them:
   -- counting them reported a 227-file "circular dependency" on TypeORM that mostly
   -- vanishes at runtime. Callers can opt back in.
-  is_type_only INTEGER NOT NULL DEFAULT 0
+  is_type_only INTEGER NOT NULL DEFAULT 0,
+  -- Where the edge comes from: the 1-based line of the import/export statement (or
+  -- require call) in from_file, and that statement's text, whitespace-collapsed and
+  -- truncated. Lets a cycle answer cite its evidence, so an agent doesn't grep every
+  -- hop to confirm it. NULL in indexes built before these columns existed.
+  line INTEGER,
+  statement TEXT,
+  -- The name as imported/re-exported (`import { A as B }` -> 'A'), set even when
+  -- to_symbol_id is NULL, e.g. a name that reaches to_file through a barrel. NULL
+  -- for edges that name nothing (namespace/default/side-effect, export *, require).
+  imported_name TEXT
 );
 
 -- Where a symbol is used (from the LanguageService's findReferences — plan §4).

@@ -153,8 +153,8 @@ function extractEdges(
   checker: ts.TypeChecker
 ): void {
   const insertEdge = db.prepare(
-    `INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type, is_type_only)
-     VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type, is_type_only, line, statement, imported_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const findSymbol = db.prepare(`SELECT id FROM symbols WHERE name = ? AND file_path = ?`);
 
@@ -181,14 +181,17 @@ function extractEdges(
    * own inline `type` modifier applies to just that one.
    */
   const writeEdges = (
+    source: ts.Node,
     toFile: string,
     names: ImportedName[],
     clauseTypeOnly: boolean,
     edgeType: EdgeType = "imports"
   ) => {
+    const line = sourceFile.getLineAndCharacterOfPosition(source.getStart(sourceFile)).line + 1;
+    const statement = statementText(source, sourceFile);
     if (names.length === 0) {
       // default / namespace / side-effect import, or `export * from`.
-      insertEdge.run(fromFile, toFile, null, edgeType, clauseTypeOnly ? 1 : 0);
+      insertEdge.run(fromFile, toFile, null, edgeType, clauseTypeOnly ? 1 : 0, line, statement, null);
       return;
     }
     for (const { name, isTypeOnly } of names) {
@@ -198,10 +201,26 @@ function extractEdges(
         toFile,
         row ? row.id : null,
         edgeType,
-        clauseTypeOnly || isTypeOnly ? 1 : 0
+        clauseTypeOnly || isTypeOnly ? 1 : 0,
+        line,
+        statement,
+        name
       );
     }
   };
+
+  /**
+   * Under verbatimModuleSyntax the compiler keeps every import/export declaration
+   * that lacks a top-level `type`, dropping only its inline-`type` names:
+   * `import { type T } from "./m"` emits `import {} from "./m"`, and
+   * `export { type T } from "./m"` emits `export {} from "./m"` - both still load
+   * the module (checked against tsc 5.9 emit). Without the flag the statement is
+   * elided. Per-name edges alone would all be type-only here, hiding a runtime
+   * edge the emitted-JS oracle found twice on directus; this adds the side-effect
+   * edge the emit actually has.
+   */
+  const keptAsSideEffect = (names: ImportedName[]): boolean =>
+    options.verbatimModuleSyntax === true && names.length > 0 && names.every((n) => n.isTypeOnly);
 
   for (const stmt of sourceFile.statements) {
     if (ts.isImportDeclaration(stmt)) {
@@ -220,18 +239,24 @@ function extractEdges(
           });
         }
       }
-      // default imports and namespace imports (`import * as ns`) fall through
-      // with no names -> a single NULL edge, same as a side-effect import. A
-      // side-effect import (no clause at all) is always retained: running the
-      // module IS the point.
-      const binding =
-        clause?.name ??
-        (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)
-          ? clause.namedBindings.name
-          : undefined);
-      const clauseErased =
-        clause?.isTypeOnly === true || (binding !== undefined && !erasure.isUsedAsValue(binding));
-      writeEdges(toFile, names, clauseErased);
+      // Every binding gets its own edge and its own erasure verdict. The compiler
+      // keeps the statement if ANY binding is used as a value, so one binding's
+      // verdict must never stand in for another's: `import Def, { val }` with Def
+      // used only as a type once marked val's edge erased too, and
+      // `import Def, { Shape }` with Def a value recorded only Shape's erased edge -
+      // both hid a runtime edge that tsc emits as require("./m").
+      // A default import is recorded under the name "default"; a namespace import
+      // (`import * as ns`) names nothing. A side-effect import (no clause at all)
+      // is always retained: running the module IS the point.
+      const clauseTypeOnly = clause?.isTypeOnly === true;
+      if (clause?.name) {
+        names.push({ name: "default", isTypeOnly: !erasure.isUsedAsValue(clause.name) });
+      }
+      const namespace =
+        clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings) ? clause.namedBindings.name : undefined;
+      if (namespace) writeEdges(stmt, toFile, [], clauseTypeOnly || !erasure.isUsedAsValue(namespace));
+      if (names.length > 0 || !namespace) writeEdges(stmt, toFile, names, clauseTypeOnly);
+      if (!clauseTypeOnly && keptAsSideEffect(names)) writeEdges(stmt, toFile, [], false);
     } else if (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier) {
       const toFile = resolveSpecifier(stmt.moduleSpecifier);
       if (!toFile) continue;
@@ -254,7 +279,8 @@ function extractEdges(
       // because that makes them un-findable by identifier search - see
       // findSymbolReferences' re_exported_by.
       const isStarReExport = !stmt.exportClause || ts.isNamespaceExport(stmt.exportClause);
-      writeEdges(toFile, names, stmt.isTypeOnly, isStarReExport ? "reexport_star" : "imports");
+      writeEdges(stmt, toFile, names, stmt.isTypeOnly, isStarReExport ? "reexport_star" : "imports");
+      if (!stmt.isTypeOnly && keptAsSideEffect(names)) writeEdges(stmt, toFile, [], false);
     } else if (ts.isImportEqualsDeclaration(stmt)) {
       // `import x = require("./mod")` is a distinct AST node from ImportDeclaration
       // (not `import { x } from ...` syntax), and was previously not walked here at
@@ -272,7 +298,7 @@ function extractEdges(
       // used from a value position (confirmed against real emit: an import-equals
       // whose binding goes entirely unused is dropped from the compiled output).
       const erased = stmt.isTypeOnly || !erasure.isUsedAsValue(stmt.name);
-      writeEdges(toFile, [], erased);
+      writeEdges(stmt, toFile, [], erased);
     }
   }
 
@@ -282,8 +308,17 @@ function extractEdges(
   // edge the emitted-JS oracle found in the dangerous direction. Never erased.
   for (const specifier of findTopLevelRequireCalls(sourceFile)) {
     const toFile = resolveSpecifier(specifier);
-    if (toFile) writeEdges(toFile, [], false, "require");
+    if (toFile) writeEdges(specifier.parent, toFile, [], false, "require");
   }
+}
+
+/** Longest statement text stored per edge - enough for any ordinary import line. */
+const MAX_STATEMENT_CHARS = 200;
+
+/** A statement's source text on one line (multi-line import lists collapsed), truncated. */
+function statementText(node: ts.Node, sourceFile: ts.SourceFile): string {
+  const text = node.getText(sourceFile).replace(/\s+/g, " ").trim();
+  return text.length > MAX_STATEMENT_CHARS ? `${text.slice(0, MAX_STATEMENT_CHARS - 1)}…` : text;
 }
 
 /**

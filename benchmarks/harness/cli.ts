@@ -10,13 +10,18 @@
  *          --allow-unresolved (benchmark even if the RIE index has unresolved internal imports;
  *          only for imports shown not to affect the tasks - the count is recorded in the results)
  *          --out=<path>  (default benchmarks/results/harness/<label>-<timestamp>.json)
+ *          --session-timeout-min=N  (kill a session after N minutes and record it as an error; default 30)
+ *
+ * Each finished run is also appended to <out>.partial.jsonl as it completes, so a
+ * run stopped midway keeps the sessions it already paid for. The file is deleted
+ * once the full results are written.
  *
  * Every run is a fresh headless Claude Code session in the target repo with the
  * same prompt, model and built-in tools; arms differ only in the one MCP server
  * they load. Results keep every run's transcript metrics, final text and grade,
  * so a published number can always be traced back to the raw answers.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -152,14 +157,22 @@ if (setups.has("rie-index")) {
 }
 
 const startedAt = new Date();
+const out =
+  flag("out") ?? join(BENCH_DIR, "results", "harness", `${label}-${startedAt.toISOString().replace(/[:.]/g, "-")}.json`);
+const partialOut = `${out}.partial.jsonl`;
+mkdirSync(dirname(out), { recursive: true });
+const sessionTimeoutMs = Number(flag("session-timeout-min") ?? 30) * 60_000;
+console.log(`Session timeout: ${sessionTimeoutMs / 60_000} min. Progress: ${partialOut}`);
+
 const records = runBenchmark({
   tasks,
   tools,
   runs,
   model,
   repoRoot,
-  runner: (req) => runClaude(claudeBin, req),
+  runner: (req) => runClaude(claudeBin, { ...req, timeoutMs: sessionTimeoutMs }),
   onRun: (r, done, total) => {
+    appendFileSync(partialOut, JSON.stringify(r) + "\n");
     const m = r.metrics;
     const verdict = !r.ok ? `ERROR ${r.error?.split("\n")[0]}` : r.grade.correct ? "correct" : `wrong (${r.grade.reason ?? "incorrect"})`;
     console.log(
@@ -175,9 +188,6 @@ const gitHead = spawnSync("git", ["rev-parse", "HEAD"], { cwd: PROJECT_ROOT, enc
 const claudeVersion = spawnSync(claudeBin, ["--version"], { encoding: "utf8" }).stdout.trim();
 const observedModels = [...new Set(records.flatMap((r) => r.metrics?.models ?? []))].sort();
 
-const out =
-  flag("out") ?? join(BENCH_DIR, "results", "harness", `${label}-${startedAt.toISOString().replace(/[:.]/g, "-")}.json`);
-mkdirSync(dirname(out), { recursive: true });
 writeFileSync(
   out,
   JSON.stringify(
@@ -203,6 +213,7 @@ writeFileSync(
     2
   ) + "\n"
 );
+rmSync(partialOut, { force: true });
 
 const fmt = (n: number | null) => (n === null ? "-" : Math.round(n).toLocaleString("en-US"));
 const table = (title: string, cells: CellSummary[]) => {

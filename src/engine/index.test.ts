@@ -10,6 +10,8 @@ import {
   dependencyPath,
   findSymbolReferences,
   findCircularDependencies,
+  circularDependencyReport,
+  findCycleThroughFile,
 } from "./index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -474,6 +476,159 @@ describe("find_circular_dependencies over fixtures/type-only-repo", () => {
     expect(groups).toEqual([
       ["a.ts", "b.ts"],
       ["c.ts", "d.ts"],
+    ]);
+  });
+});
+
+/** The compact MCP-facing report and the per-file loop query (the directus fix). */
+describe("circularDependencyReport + findCycleThroughFile (synthetic db)", () => {
+  function dbWithEdges(edges: ([string, string] | [string, string, "type-only"])[]) {
+    const db = openDb(":memory:");
+    const insert = db.prepare(
+      `INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type, is_type_only)
+       VALUES (?, ?, NULL, 'imports', ?)`
+    );
+    for (const [from, to, kind] of edges) insert.run(from, to, kind === "type-only" ? 1 : 0);
+    return db;
+  }
+
+  // A 10-file ring (too big to inline) with a chord 0 -> 5, plus a separate 2-file cycle.
+  const ring = Array.from({ length: 10 }, (_, i) => `/repo/src/r${i}.ts`);
+  const ringEdges: [string, string][] = ring.map((f, i) => [f, ring[(i + 1) % ring.length]]);
+  const db = dbWithEdges([
+    ...ringEdges,
+    ["/repo/src/r0.ts", "/repo/src/r5.ts"],
+    ["/repo/src/x.ts", "/repo/src/y.ts"],
+    ["/repo/src/y.ts", "/repo/src/x.ts"],
+    ["/repo/src/leaf.ts", "/repo/src/r0.ts"],
+    ["/repo/src/t1.ts", "/repo/src/t2.ts"],
+    ["/repo/src/t2.ts", "/repo/src/t1.ts", "type-only"],
+  ]);
+
+  it("summarizes large groups, inlines small ones, and relativizes paths", () => {
+    const report = circularDependencyReport(db, { root: "/repo" });
+    expect(report.cycle_type).toBe("runtime");
+    expect(report.files_in_cycles).toBe(12);
+    expect(report.groups.map((g) => g.size)).toEqual([10, 2]);
+    expect(report.groups[0].files).toBeUndefined();
+    expect(report.groups[1].files).toEqual(["src/x.ts", "src/y.ts"]);
+    expect(report.groups[0].example_cycle.every((f) => f.startsWith("src/"))).toBe(true);
+    expect(report.note).toMatch(/include_files/);
+    expect(report.note).toMatch(/find_cycle_through_file/);
+  });
+
+  it("lists every member with includeFiles, and agrees with findCircularDependencies", () => {
+    const report = circularDependencyReport(db, { includeFiles: true });
+    expect(report.groups.map((g) => g.files)).toEqual(findCircularDependencies(db).map((c) => c.files));
+  });
+
+  it("the root prefix match is case- and slash-insensitive, and only strips whole directories", () => {
+    const report = circularDependencyReport(db, { root: "\\REPO\\src\\" });
+    expect(report.groups[1].files).toEqual(["x.ts", "y.ts"]);
+    expect(circularDependencyReport(db, { root: "/rep" }).groups[1].files).toEqual(["/repo/src/x.ts", "/repo/src/y.ts"]);
+  });
+
+  it("returns the shortest loop through the given file, not an arbitrary group example", () => {
+    // r5 -> r6 -> ... -> r9 -> r0 -> r5 (the chord) = 6 files, shorter than the full ring.
+    const result = findCycleThroughFile(db, "src/r7.ts", { root: "/repo" });
+    expect(result.in_cycle).toBe(true);
+    expect(result.resolved_path).toBe("src/r7.ts");
+    expect(result.cycle).toEqual(["src/r7.ts", "src/r8.ts", "src/r9.ts", "src/r0.ts", "src/r5.ts", "src/r6.ts", "src/r7.ts"]);
+    expect(result.loop_length).toBe(6);
+  });
+
+  it("proves a negative exhaustively, for a file that only imports into a cycle", () => {
+    const result = findCycleThroughFile(db, "/repo/src/leaf.ts");
+    expect(result.in_cycle).toBe(false);
+    expect(result.cycle).toEqual([]);
+    expect(result.files_searched).toBe(11); // leaf + the 10 ring files
+    expect(result.type_only_cycle_exists).toBe(false);
+  });
+
+  it("flags a loop that exists only through a type-only import", () => {
+    const runtime = findCycleThroughFile(db, "/repo/src/t1.ts");
+    expect(runtime.in_cycle).toBe(false);
+    expect(runtime.type_only_cycle_exists).toBe(true);
+    expect(runtime.note).toMatch(/cannot run/);
+
+    const withTypes = findCycleThroughFile(db, "/repo/src/t1.ts", { includeTypeOnly: true });
+    expect(withTypes.in_cycle).toBe(true);
+    expect(withTypes.cycle).toEqual(["/repo/src/t1.ts", "/repo/src/t2.ts", "/repo/src/t1.ts"]);
+    expect(withTypes).not.toHaveProperty("type_only_cycle_exists");
+  });
+
+  it("handles a self-import and an unindexed path", () => {
+    const self = findCycleThroughFile(dbWithEdges([["/r/loop.ts", "/r/loop.ts"]]), "loop.ts");
+    expect(self.cycle).toEqual(["/r/loop.ts", "/r/loop.ts"]);
+    expect(self.loop_length).toBe(1);
+
+    const missing = findCycleThroughFile(db, "src/nope.ts");
+    expect(missing.file_indexed).toBe(false);
+    expect(missing.note).toMatch(/not in the index/);
+  });
+});
+
+/** Each hop cites the statement behind it, so an agent needn't grep to confirm the loop. */
+describe("findCycleThroughFile hops", () => {
+  function dbWithEvidence(
+    edges: { from: string; to: string; line: number; stmt: string; name?: string; typeOnly?: boolean }[]
+  ) {
+    const db = openDb(":memory:");
+    const insert = db.prepare(
+      `INSERT INTO edges (from_file, to_file, to_symbol_id, edge_type, is_type_only, line, statement, imported_name)
+       VALUES (?, ?, NULL, 'imports', ?, ?, ?, ?)`
+    );
+    for (const e of edges) insert.run(e.from, e.to, e.typeOnly ? 1 : 0, e.line, e.stmt, e.name ?? null);
+    return db;
+  }
+
+  const db = dbWithEvidence([
+    // a -> b: a mixed statement (one erased name, one runtime name), plus a later star re-export.
+    { from: "/repo/a.ts", to: "/repo/b.ts", line: 3, stmt: "import { type T, run } from './b';", name: "T", typeOnly: true },
+    { from: "/repo/a.ts", to: "/repo/b.ts", line: 3, stmt: "import { type T, run } from './b';", name: "run" },
+    { from: "/repo/a.ts", to: "/repo/b.ts", line: 9, stmt: "export * from './b';" },
+    // b -> a only through an erased import: no runtime loop, but a type-level one.
+    { from: "/repo/b.ts", to: "/repo/a.ts", line: 1, stmt: "import { Shape } from './a';", name: "Shape", typeOnly: true },
+    // c <-> d runtime loop.
+    { from: "/repo/c.ts", to: "/repo/d.ts", line: 2, stmt: "import * as d from './d';" },
+    { from: "/repo/d.ts", to: "/repo/c.ts", line: 4, stmt: "import { c, cc } from './c';", name: "c" },
+    { from: "/repo/d.ts", to: "/repo/c.ts", line: 4, stmt: "import { c, cc } from './c';", name: "cc" },
+  ]);
+
+  it("cites file:line, the statement, and the names that survive to runtime", () => {
+    const result = findCycleThroughFile(db, "c.ts", { root: "/repo" });
+    expect(result.cycle).toEqual(["c.ts", "d.ts", "c.ts"]);
+    expect(result.hops).toEqual([
+      { at: "c.ts:2", statement: "import * as d from './d';" },
+      { at: "d.ts:4", statement: "import { c, cc } from './c';", runtime_names: ["c", "cc"] },
+    ]);
+  });
+
+  it("lists only the runtime names of a mixed statement, and marks type-only hops when they count", () => {
+    const withTypes = findCycleThroughFile(db, "/repo/a.ts", { includeTypeOnly: true, root: "/repo" });
+    expect(withTypes.hops).toEqual([
+      { at: "a.ts:3", statement: "import { type T, run } from './b';", runtime_names: ["run"], type_only: false },
+      { at: "b.ts:1", statement: "import { Shape } from './a';", type_only: true },
+    ]);
+    expect(findCycleThroughFile(db, "/repo/a.ts")).not.toHaveProperty("hops");
+  });
+
+  it("falls back to the bare file for an index built before lines were recorded", () => {
+    const old = openDb(":memory:");
+    old.exec(`INSERT INTO edges (from_file, to_file, edge_type) VALUES ('/r/x.ts', '/r/y.ts', 'imports'), ('/r/y.ts', '/r/x.ts', 'imports')`);
+    expect(findCycleThroughFile(old, "/r/x.ts").hops).toEqual([
+      { at: "/r/x.ts", statement: null },
+      { at: "/r/y.ts", statement: null },
+    ]);
+  });
+
+  it("over real source: the fixture's c <-> d loop cites both import lines", () => {
+    const real = openDb(":memory:");
+    indexRepository(real, join(__dirname, "../../fixtures/type-only-repo/tsconfig.json"));
+    const result = findCycleThroughFile(real, "src/c.ts", { root: join(__dirname, "../../fixtures/type-only-repo") });
+    expect(result.hops).toEqual([
+      { at: "src/c.ts:2", statement: `import { d } from "./d";`, runtime_names: ["d"] },
+      { at: "src/d.ts:1", statement: `import { c } from "./c";`, runtime_names: ["c"] },
     ]);
   });
 });

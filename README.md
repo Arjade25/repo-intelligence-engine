@@ -16,7 +16,8 @@ The engine parses a TypeScript repo with the **TypeScript Compiler API** and sto
 | `find_related_files(file)` | What does this file import, and what imports it? |
 | `find_symbol_references(symbol)` | Everywhere this symbol is used |
 | `dependency_path(a, b)` | Is there an import path from A to B, and what is it? Each end can be a symbol name or a file path |
-| `find_circular_dependencies()` | Which files form runtime import cycles? (Pass `include_type_only` to count erased imports too) |
+| `find_circular_dependencies()` | Which files form runtime import cycles? Compact: group sizes + one example each (pass `include_files` for full member lists, `include_type_only` to count erased imports too) |
+| `find_cycle_through_file(file)` | Is this file in a runtime cycle, and what is the shortest loop through it? Exhaustive when the answer is no |
 | `reindex()` | Rebuild the whole index, and report any internal imports that failed to resolve |
 
 The `engine/` functions are callable directly (CLI, tests) — the engine is the product. It also supports Claude Code and any other MCP-compatible client through an integrated MCP server.
@@ -44,7 +45,8 @@ Every path-taking query accepts absolute or repo-relative paths, with either sla
   ┌───────────────────┐   pure functions over the index —
   │   Query Engine    │   find_module, find_related_files,
   │  src/engine/      │   find_symbol_references, dependency_path,
-  └───────────────────┘   find_circular_dependencies, reindex
+  └───────────────────┘   find_circular_dependencies,
+                          find_cycle_through_file, reindex
           │
           ▼
   ┌───────────────────┐   thin adapter: parse args → call engine.
@@ -195,6 +197,17 @@ In the 370 graded sessions, accuracy was essentially the same in both arms (183/
 ## Circular dependency detection
 
 `find_circular_dependencies()` reports strongly connected components of the import graph (Tarjan's algorithm), each with one concrete example cycle. It reports components rather than enumerating every simple cycle, because a tangled component can contain exponentially many of those — the component is the actionable unit, the example makes it concrete.
+
+**Output is kept small, and the per-file question has its own tool.** The first long-loop benchmark run (directus, a 157-file runtime group) had the RIE arm spending ~1.6x the baseline's tokens per correct answer. Agents called this tool in all 50 runs; its output was ~25K characters (absolute paths, every member of every group), which stayed in context and was re-read on every later turn. It also didn't answer the question those tasks asked, "give a loop through file X", so agents grepped anyway. The MCP tool now returns paths relative to the repo, member lists only for groups of 8 files or fewer, and a pointer to `find_cycle_through_file`, which BFSes from the file back to itself and returns the shortest loop through it (or `in_cycle: false`, with `files_searched` and `type_only_cycle_exists`). On directus that is 2.5K characters instead of 24.8K, and `find_cycle_through_file` returns a chain the task validator accepts on 10/10 cycle tasks, each at the oracle's minimum length. The engine's `findCircularDependencies` still returns the full form, which the oracle comparison uses.
+
+With that change the rie arm went from ~1.6x more to **~2.2x fewer tokens per correct answer** than the baseline on the same 10 directus tasks (107K vs 240K, 50/50 vs 49/50 correct; `benchmarks/results/harness/directus-2026-09-30T07-10-55-765Z.json`). Every rie session still grepped, though, to confirm each step of the loop was a real, non-erased import. So `find_cycle_through_file` now also returns `hops`: for each step, the statement's `file:line`, its text, and `runtime_names`, meaning the imported names the type checker saw used as values. That comes from three columns the indexer now records per edge (`line`, `statement`, `imported_name`). Re-measured on the same 10 tasks (rie arm only, 50 sessions, `directus-2026-09-30T10-30-32-403Z.json`): 50/50 correct at **30K tokens per correct answer**, down from 107K and about 8x below the baseline's 240K. The median session made 1 tool call, 40 of 50 sessions made no other call, and Grep/Read calls fell from 268/13 to 11/4. The baseline figure comes from the earlier run the same day, with the same model, CLI and tasks.
+
+Running the emitted-JS oracle on directus and element-web while building this turned up three erasure gaps. Each one hid a runtime edge, and each was checked against real `tsc` emit before it was fixed. They didn't change any cycle group on either repo:
+- `import { type X } from` under `verbatimModuleSyntax` compiles to `import {} from`, which still loads the module. RIE had treated it as erased (2 edges on directus).
+- An instantiation expression (`Dialog<Props>` passed as a value) was read as a type position (1 edge on element-web).
+- In a statement with both a default import and named imports, the default binding's verdict was applied to every name.
+
+After the fixes, the oracle reports 0 hidden runtime edges on all four benchmark repos: TypeORM 1144 edges agree, nest 1440 agree with 2 safe over-reports, directus 2237 agree, element-web 6467 agree.
 
 **Erased imports are excluded by default.** An import that TypeScript erases is a real *source* dependency but cannot produce a *runtime* cycle. The indexer records this per edge (`edges.is_type_only`), at both statement and specifier granularity — `import { type A, b }` is one statement carrying one erased edge and one real one.
 
