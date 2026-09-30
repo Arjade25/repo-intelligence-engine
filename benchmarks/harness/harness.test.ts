@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -11,7 +11,7 @@ import {
   type Task,
   type TrapTask,
 } from "../taskgen/generate.js";
-import { extractAnswerJson, gradeAnswer, toRepoRelative } from "./grade.js";
+import { extractAnswerJson, gitRootPrefix, gradeAnswer, toRepoRelative } from "./grade.js";
 import { runBenchmark, summarize, type Runner } from "./bench.js";
 import { parseTranscript, type TranscriptMetrics } from "./claude.js";
 
@@ -45,6 +45,36 @@ describe("toRepoRelative", () => {
     expect(toRepoRelative("d:\\RIE\\repo\\src\\a.ts", root)).toBe("src/a.ts");
     expect(toRepoRelative("./src/a.ts", root)).toBe("src/a.ts");
     expect(toRepoRelative("`src/a.ts`", root)).toBe("src/a.ts");
+  });
+
+  // directus/api and element-web/apps/web are packages inside a monorepo checkout;
+  // "relative to the repository root" legitimately reads as relative to the git root.
+  describe("in a monorepo package", () => {
+    const mono = mkdtempSync(join(tmpdir(), "rie-mono-"));
+    const pkg = join(mono, "api");
+    mkdirSync(join(mono, ".git"));
+    mkdirSync(join(pkg, "src"), { recursive: true });
+    mkdirSync(join(pkg, "api"));
+    writeFileSync(join(pkg, "src", "a.ts"), "");
+    writeFileSync(join(pkg, "api", "real.ts"), "");
+
+    it("finds the package's path inside the git checkout", () => {
+      expect(gitRootPrefix(pkg)).toBe("api/");
+      expect(gitRootPrefix(mono)).toBe("");
+    });
+
+    it("accepts a path given relative to the git root", () => {
+      expect(toRepoRelative("api/src/a.ts", pkg)).toBe("src/a.ts");
+      expect(toRepoRelative("API\\src\\a.ts", pkg)).toBe("src/a.ts");
+    });
+
+    it("leaves a path alone when it exists as written - a real api/ folder inside the package", () => {
+      expect(toRepoRelative("api/real.ts", pkg)).toBe("api/real.ts");
+    });
+
+    it("leaves a path alone when stripping doesn't produce a real file either", () => {
+      expect(toRepoRelative("api/src/missing.ts", pkg)).toBe("api/src/missing.ts");
+    });
   });
 });
 

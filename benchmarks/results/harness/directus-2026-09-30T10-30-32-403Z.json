@@ -24,7 +24,14 @@
     "claude_version": "2.1.284 (Claude Code)",
     "harness_commit": "5345ae235c7ffccdaaca40437277bb37ecfe55cc",
     "started_at": "2026-09-30T10:30:32.403Z",
-    "finished_at": "2026-09-30T10:43:24.407Z"
+    "finished_at": "2026-09-30T10:43:24.407Z",
+    "regraded": [
+      {
+        "at": "2026-09-30T11:05:32.760Z",
+        "note": "re-graded from saved final_text with the current grader",
+        "changed": []
+      }
+    ]
   },
   "summary": {
     "by_task": [
