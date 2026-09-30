@@ -9,6 +9,9 @@ dist/
 .DS_Store
 # benchmarks/results/ is deliberately NOT ignored: the README cites it as the raw
 # evidence behind the before/after table, so it has to ship with the repo.
+# Except the harness's in-progress file: deleted when a run finishes, left behind
+# only by a stopped run - salvage data, not a result.
+*.partial.jsonl
 # The cloned target repos do not — each is reproducible from its tasks file (url+commit).
 benchmarks/target-repo/
 benchmarks/target-repo-nest/

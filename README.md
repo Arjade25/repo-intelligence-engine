@@ -78,7 +78,7 @@ There are two harnesses. They answer different questions:
 |---|---|---|
 | Tasks | Hand-written, with pre-registered oracle answers verified by independent grep | Generated from compiler ground truth (`npm run taskgen`), never from RIE's index |
 | Correctness | `located_oracle` substring check, plus reading transcripts by hand | Graded: the last JSON block of each answer is scored by the task's validator |
-| Targets | TypeORM, nest | nest |
+| Targets | TypeORM, nest | nest, directus, element-web |
 | Raw data | `benchmarks/results/*.json` | `benchmarks/results/harness/*.json`, with the exact task set alongside as `*.tasks.json` |
 
 ### At a glance
@@ -91,6 +91,8 @@ There are two harnesses. They answer different questions:
 | nest · hand-written (4 tasks) | 4 × 5 | see [below](#hand-written-tasks-nest) | | 2 wins (one ~107×), 2 losses |
 | nest · generated cycle / trap / impact | 27 × 5 | 133/135 correct, 101.5K tokens per correct | 134/135, 112.7K | Tie on accuracy; assisted **~11% more expensive** |
 | nest · generated dependency paths | 10 × 5 | 50/50 correct, 345K tokens per correct | **50/50, 164K** | ~2.1× cheaper, half the tool calls |
+| directus · generated cycle tracing (long loops) | 10 × 5 | 50/50, $0.157 / 36 s per session | **50/50, $0.039 / 15 s** | ~4× cheaper in dollars, ~2.4× faster |
+| element-web · generated cycle tracing (long loops) | 10 × 5 | 50/50, $0.374 / 81 s per session | **50/50, $0.045 / 16 s** | ~8× cheaper in dollars, ~5× faster |
 
 ### Hand-written tasks: TypeORM
 
@@ -181,6 +183,40 @@ Both arms answered all 100 runs correctly. The assisted arm got there with ~2.1�
 
 The saving is concentrated where the claim predicts. When a path exists, `dependency_path` returns the whole 12–14-hop chain in one query: ~3.2× fewer tokens by median, with 25 RIE calls across 25 runs. Proving that *no* path exists saved much less, ~1.1× by median. In those runs the agent did not accept `found: false` on its own. It followed up with 38 `find_related_files` calls and 30 file reads (against 7 reads when a path existed), walking the import graph by hand to confirm the negative. A `found: false` result now carries `files_searched` and a note saying the search was exhaustive. Whether that changes agent behavior hasn't been measured yet: the numbers above predate it.
 
+### Generated, graded tasks: long-loop repos (directus, element-web)
+
+nest's runtime cycles are two 4-file groups, too short to test the claim that long loops are where reading files gets expensive. `npm run screen` ranks candidate repos by the shortest runtime loop through each cycle member. Two came out with long loops, and both were **chosen for that reason**, so everything below is conditional on long loops:
+- **directus** (`api/`, 837 files): a 157-file runtime group, where 57% of members have no loop shorter than 6 files.
+- **element-web** (`apps/web`): a 115-file group, with loops up to 17 files.
+
+Each task names a file and asks for a runtime import chain that leads back to it (shortest loops of 6–12 files). The validator accepts any valid loop. Model `claude-opus-5-5`, 5 runs per arm per task, arm order rotated.
+
+| Run | Arm | Correct | Cost per session | Median wall time | Median calls | Tokens per correct | Median tokens [IQR] |
+|---|---|---|---|---|---|---|---|
+| directus, 09-29 (first version) | baseline | 50/50 | $0.147 | 39 s | 10 | 223K | 188K [150–249K] |
+| | rie | 50/50 | $0.228 | 36 s | 10 | 373K | 357K [299–397K] |
+| directus, 09-30 (`find_cycle_through_file`) | baseline | 50/50 | $0.157 | 36 s | 11 | 235K | 196K [162–282K] |
+| | rie | 50/50 | $0.080 | 24 s | 5.5 | 107K | 109K [78–129K] |
+| directus, 09-30 (+ per-hop evidence) | rie | 50/50 | **$0.039** | **15 s** | **1** | 30K | 26K [26–28K] |
+| element-web, 09-30 | baseline | 50/50 | $0.374 | 81 s | 21.5 | 841K | 628K [366K–1.2M] |
+| | rie | 50/50 | **$0.045** | **16 s** | **1** | 27K | 28K [18–29K] |
+
+Result files are in `benchmarks/results/harness/`, named `directus-2026-09-29T10-12-50-834Z`, `directus-2026-09-30T07-10-55-765Z`, `directus-2026-09-30T10-30-32-403Z` and `element-web-2026-09-30T11-27-14-790Z`.
+
+**The first version lost.** On 09-29 the engine cost ~1.6× the baseline. Its cycle report ran to ~25K characters and stayed in context for the rest of the session. It also couldn't answer "a loop through file X", so agents grepped anyway. [Circular dependency detection](#circular-dependency-detection) describes the fixes, and each one was re-measured:
+- `find_cycle_through_file` brought it to ~2× cheaper.
+- Adding each hop's import statement brought it to ~4× cheaper. After that, 40 of 50 sessions answered with that single tool call.
+
+The final directus rie run reuses that morning's baseline, which has the same model, CLI and tasks, and the baseline was stable across days.
+
+**element-web had longer loops, and the gap grew.** Baseline cost rose with loop length: the median ranged from 251K tokens on the easiest task to 1.9M on the hardest, and one session needed 38 tool calls. The engine's answer took one call on every task, at 17–49K tokens. It was cheaper on all 10 tasks.
+
+**How to read these numbers:**
+- **Dollars and wall time are the headline, not tokens.** Most of the baseline's tokens are its growing context re-read from cache on every turn, and cache reads are cheap. The token ratios (~8× on directus, ~31× on element-web) overstate the real saving by 2–4×.
+- **The baseline has Read, Grep and Glob only.** It has no shell, so it can't run `madge --circular` or `tsc`, which a developer would reach for. These runs compare the engine to an agent working with file-search tools, not to the best available alternative. A baseline arm with Bash and madge is the fair next competitor, and it isn't built yet.
+- **The tasks fit the tool.** `find_cycle_through_file` was built after these tasks exposed the gap, and it answers exactly their question. Path and runtime-vs-type trap tasks on the same repos haven't been run yet.
+- **The one-time index build isn't counted.** It takes a few minutes on element-web, before any session starts.
+
 ### Overall reading
 
 This is not "faster than grep." Where a name search can answer the question directly, the engine is a wash or a cost:
@@ -191,8 +227,9 @@ This is not "faster than grep." Where a name search can answer the question dire
 The large, repeatable wins all come from multi-hop and whole-graph questions, the two things text search structurally cannot do:
 - long import paths: ~15× fewer tokens on TypeORM, and ~3.2× on nest paths that exist
 - runtime-cycle detection over a whole repo: ~46× fewer tokens on TypeORM, and ~107× on nest
+- tracing a cycle through a given file in repos with long loops: ~4× cheaper in dollars on directus and ~8× on element-web, at equal accuracy (see the caveats [above](#generated-graded-tasks-long-loop-repos-directus-element-web))
 
-In the 370 graded sessions, accuracy was essentially the same in both arms (183/185 baseline, 184/185 assisted). On these tasks, the engine changes what a correct answer costs, not whether the agent finds it.
+In the 370 graded nest sessions, accuracy was essentially the same in both arms (183/185 baseline, 184/185 assisted). In the 350 long-loop sessions, both arms answered every cycle task correctly. On these tasks, the engine changes what a correct answer costs, not whether the agent finds it.
 
 ## Circular dependency detection
 
