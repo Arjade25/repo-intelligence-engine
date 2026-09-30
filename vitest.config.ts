@@ -12,6 +12,12 @@ export default defineConfig({
     // node_modules and .git. Relying on the defaults silently collected the
     // compiled copies of every test in dist/ after `npm run build`, doubling the
     // suite (43 -> 86) and failing on the stale build output.
-    exclude: [...configDefaults.exclude, "dist/**", "benchmarks/target-repo/**", "benchmarks/target-repo-nest/**"],
+    exclude: [
+      ...configDefaults.exclude,
+      "dist/**",
+      "benchmarks/target-repo/**",
+      "benchmarks/target-repo-nest/**",
+      "benchmarks/candidates/**",
+    ],
   },
 });

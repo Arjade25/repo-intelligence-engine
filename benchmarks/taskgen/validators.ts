@@ -60,8 +60,23 @@ export function validateImportPath(task: DependencyPathTask, answer: string[] | 
   return { valid: true };
 }
 
-export function validateTrapAnswer(task: TrapTask, answer: boolean): boolean {
-  return answer === task.expected.answer;
+/** Which direction(s) of a "no" trap pair have no runtime import path. */
+export type BrokenDirection = "a_to_b" | "b_to_a" | "both";
+
+/**
+ * "yes" must match a real runtime cycle. "no" must also name the direction(s) with
+ * no runtime path: on a repo with no runtime cycles every trap is a "no", so yes/no
+ * alone rewards a blanket "no". Task files generated before the runtime_* fields
+ * existed carry no direction truth and are graded on yes/no only.
+ */
+export function validateTrapAnswer(task: TrapTask, answer: boolean, broken?: BrokenDirection): CyclePathVerdict {
+  const { answer: truth, runtime_a_to_b, runtime_b_to_a } = task.expected;
+  if (answer !== truth) return { valid: false, reason: truth ? "a runtime cycle exists" : "there is no runtime cycle" };
+  if (truth || runtime_a_to_b === undefined || runtime_b_to_a === undefined) return { valid: true };
+
+  const actual: BrokenDirection = !runtime_a_to_b && !runtime_b_to_a ? "both" : !runtime_a_to_b ? "a_to_b" : "b_to_a";
+  if (broken === undefined) return { valid: false, reason: `"no" without naming the broken direction (it is ${actual})` };
+  return broken === actual ? { valid: true } : { valid: false, reason: `broken direction is ${actual}, not ${broken}` };
 }
 
 export interface ImpactScore {

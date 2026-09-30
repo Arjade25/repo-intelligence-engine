@@ -1,0 +1,33 @@
+{
+  "tsconfig": "benchmarks/candidates/pixijs/tsconfig.rie.json",
+  "files": 716,
+  "unresolved_internal": 48,
+  "long_threshold": 6,
+  "source_groups": [
+    227,
+    16,
+    9,
+    9,
+    6,
+    6,
+    5,
+    4,
+    4,
+    3,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2
+  ],
+  "runtime_groups": [],
+  "overall": {
+    "members": 0,
+    "median_loop": 0,
+    "max_loop": 0,
+    "long_members": 0
+  }
+}

@@ -1,0 +1,147 @@
+{
+  "tsconfig": "benchmarks/candidates/element-web/apps/web/tsconfig.rie.json",
+  "files": 1434,
+  "unresolved_internal": 46,
+  "long_threshold": 6,
+  "source_groups": [
+    644,
+    14,
+    3,
+    3,
+    2,
+    2
+  ],
+  "runtime_groups": [
+    {
+      "size": 115,
+      "median_loop": 6,
+      "max_loop": 17,
+      "long_members": 58,
+      "histogram": {
+        "2": 23,
+        "3": 14,
+        "4": 15,
+        "5": 5,
+        "6": 6,
+        "7": 1,
+        "8": 10,
+        "9": 11,
+        "10": 4,
+        "11": 3,
+        "12": 10,
+        "13": 6,
+        "14": 2,
+        "16": 4,
+        "17": 1
+      },
+      "longest_loop_member": "src/components/viewmodels/right_panel/user_info/UserInfoBasicOptionsViewModel.ts"
+    },
+    {
+      "size": 25,
+      "median_loop": 3,
+      "max_loop": 7,
+      "long_members": 4,
+      "histogram": {
+        "2": 5,
+        "3": 8,
+        "4": 5,
+        "5": 3,
+        "6": 2,
+        "7": 2
+      },
+      "longest_loop_member": "src/accessibility/KeyboardShortcutUtils.ts"
+    },
+    {
+      "size": 13,
+      "median_loop": 3,
+      "max_loop": 6,
+      "long_members": 2,
+      "histogram": {
+        "2": 2,
+        "3": 5,
+        "4": 1,
+        "5": 3,
+        "6": 2
+      },
+      "longest_loop_member": "src/components/views/settings/encryption/DeleteKeyStoragePanel.tsx"
+    },
+    {
+      "size": 7,
+      "median_loop": 2,
+      "max_loop": 4,
+      "long_members": 0,
+      "histogram": {
+        "2": 4,
+        "3": 2,
+        "4": 1
+      },
+      "longest_loop_member": "src/stores/widgets/WidgetMessagingStore.ts"
+    },
+    {
+      "size": 3,
+      "median_loop": 3,
+      "max_loop": 3,
+      "long_members": 0,
+      "histogram": {
+        "3": 3
+      },
+      "longest_loop_member": "src/stores/OwnBeaconStore.ts"
+    },
+    {
+      "size": 2,
+      "median_loop": 2,
+      "max_loop": 2,
+      "long_members": 0,
+      "histogram": {
+        "2": 2
+      },
+      "longest_loop_member": "src/accessibility/RovingTabIndex.tsx"
+    },
+    {
+      "size": 2,
+      "median_loop": 2,
+      "max_loop": 2,
+      "long_members": 0,
+      "histogram": {
+        "2": 2
+      },
+      "longest_loop_member": "src/audio/VoiceRecording.ts"
+    },
+    {
+      "size": 2,
+      "median_loop": 2,
+      "max_loop": 2,
+      "long_members": 0,
+      "histogram": {
+        "2": 2
+      },
+      "longest_loop_member": "src/components/views/auth/LoginWithQR.tsx"
+    },
+    {
+      "size": 2,
+      "median_loop": 2,
+      "max_loop": 2,
+      "long_members": 0,
+      "histogram": {
+        "2": 2
+      },
+      "longest_loop_member": "src/ContentMessages.ts"
+    },
+    {
+      "size": 2,
+      "median_loop": 2,
+      "max_loop": 2,
+      "long_members": 0,
+      "histogram": {
+        "2": 2
+      },
+      "longest_loop_member": "src/Terms.ts"
+    }
+  ],
+  "overall": {
+    "members": 173,
+    "median_loop": 4,
+    "max_loop": 17,
+    "long_members": 64
+  }
+}

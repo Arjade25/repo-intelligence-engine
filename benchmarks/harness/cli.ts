@@ -7,6 +7,8 @@
  *
  * Filters: --category=cycle_trace,dependency_path,change_impact  --task-ids=id,id  --limit=N
  * Other:   --skip-build  --dry-run (print the plan and exact agent command, spawn nothing)
+ *          --allow-unresolved (benchmark even if the RIE index has unresolved internal imports;
+ *          only for imports shown not to affect the tasks - the count is recorded in the results)
  *          --out=<path>  (default benchmarks/results/harness/<label>-<timestamp>.json)
  *
  * Every run is a fresh headless Claude Code session in the target repo with the
@@ -125,6 +127,7 @@ if (dryRun) {
 // --- setup + run --------------------------------------------------------------------
 const claudeBin = resolveClaudeBin();
 const setups = new Set(toolNames.map((n) => registry[n].setup).filter(Boolean));
+let unresolvedCount: number | null = null; // null = no arm built an index
 if (setups.has("rie-index")) {
   if (!args.includes("--skip-build")) {
     console.log("Building repo-intelligence-engine (npm run build)...");
@@ -136,9 +139,15 @@ if (setups.has("rie-index")) {
   const db = openDb(rieDb);
   const { unresolved_internal_imports } = reindex(db, tsconfigPath);
   db.close();
-  if (unresolved_internal_imports.length > 0) {
+  unresolvedCount = unresolved_internal_imports.length;
+  if (unresolvedCount > 0) {
     // The rie arm would be answering from a partial index - that measures the tsconfig, not the tool.
-    throw new Error(`refusing to benchmark against a partial index:\n${describeUnresolved(unresolved_internal_imports)}`);
+    // --allow-unresolved is for imports shown not to matter (e.g. Babylon's build-generated
+    // shader modules, which can't sit on a cycle); the count is kept in the results.
+    if (!args.includes("--allow-unresolved")) {
+      throw new Error(`refusing to benchmark against a partial index:\n${describeUnresolved(unresolved_internal_imports)}\n(pass --allow-unresolved if they can't affect the tasks)`);
+    }
+    console.warn(`WARNING: benchmarking with --allow-unresolved:\n${describeUnresolved(unresolved_internal_imports)}`);
   }
 }
 
@@ -177,6 +186,7 @@ writeFileSync(
         task_set: tasksPath.replace(/\\/g, "/"),
         repo: taskSet.repo,
         tsconfig_flags: taskSet.tsconfig_flags,
+        unresolved_internal_imports: unresolvedCount,
         tools: Object.fromEntries(toolNames.map((n) => [n, registry[n].description])),
         runs_per_tool: runs,
         model_requested: model ?? null,

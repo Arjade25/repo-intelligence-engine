@@ -19,7 +19,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(__dirname, "../../fixtures/taskgen-repo").replace(/\\/g, "/");
 const set = generateTasks({ tsconfigPath: `${FIXTURE}/tsconfig.json`, repo: "fixture", idPrefix: "fx" });
 const cycle = set.tasks.find((t): t is CycleTraceTask => t.category === "cycle_trace")!;
-const trap = set.tasks.find((t): t is TrapTask => t.category === "runtime_type_trap")!;
+const traps = set.tasks.filter((t): t is TrapTask => t.category === "runtime_type_trap");
+// A "yes" trap: its correct answer needs no direction, which keeps the runBenchmark test simple.
+const trap = traps.find((t) => t.expected.answer)!;
 const impact = set.tasks.find((t): t is ImpactTask => t.category === "change_impact")!;
 const pathTask = set.tasks.find((t): t is DependencyPathTask => t.category === "dependency_path")!;
 
@@ -60,10 +62,19 @@ describe("gradeAnswer", () => {
   });
 
   it("reads yes/no answers leniently but only from the answer field", () => {
-    const want = trap.expected.answer;
-    expect(gradeAnswer(trap, json({ answer: want ? "Yes." : "No." }), FIXTURE).correct).toBe(true);
-    expect(gradeAnswer(trap, json({ answer: !want }), FIXTURE).correct).toBe(false);
-    expect(gradeAnswer(trap, json({ answer: "maybe" }), FIXTURE).parsed).toBe(false);
+    const yes = traps.find((t) => t.expected.answer)!;
+    expect(gradeAnswer(yes, json({ answer: "Yes." }), FIXTURE).correct).toBe(true);
+    expect(gradeAnswer(yes, json({ answer: false, no_runtime_path: "both" }), FIXTURE).correct).toBe(false);
+    expect(gradeAnswer(yes, json({ answer: "maybe" }), FIXTURE).parsed).toBe(false);
+  });
+
+  it("grades a 'no' on the direction it names, and marks a malformed direction unparseable", () => {
+    const no = traps.find((t) => !t.expected.answer)!;
+    const broken = no.expected.runtime_a_to_b ? "b_to_a" : "a_to_b";
+    expect(gradeAnswer(no, json({ answer: "No", no_runtime_path: broken }), FIXTURE)).toMatchObject({ parsed: true, correct: true });
+    expect(gradeAnswer(no, json({ answer: "No", no_runtime_path: "both" }), FIXTURE)).toMatchObject({ parsed: true, correct: false });
+    expect(gradeAnswer(no, json({ answer: "No" }), FIXTURE)).toMatchObject({ parsed: true, correct: false });
+    expect(gradeAnswer(no, json({ answer: "No", no_runtime_path: "sideways" }), FIXTURE).parsed).toBe(false);
   });
 
   it("gives partial credit on impact but only counts an exact set as correct", () => {

@@ -1,0 +1,14 @@
+{
+  "repo": {
+    "name": "element-web",
+    "dir": "candidates/element-web/apps/web",
+    "url": "https://github.com/element-hq/element-web.git",
+    "commit": "3af3cbec98350c7184caeb5e6b085a369c8572a6",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "element-web apps/web, 1,434 non-test src files. Chosen by `npm run screen` for long runtime loops: a 115-file runtime cycle group in which 58 files (50%) have no loop back to themselves shorter than 6 files, longest 17 (see candidates-config/README.md). Selected on purpose - results here are conditional on long loops and must be reported that way. matrix-js-sdk and the workspace packages are not installed, so they count as external. Clone sparsely (apps/web/, packages/, root *.json, excluding **/__vis__/) and copy candidates-config/element-web.tsconfig.rie.json to apps/web/tsconfig.rie.json."
+  },
+  "taskgen": {
+    "min_path": 6
+  },
+  "tasks": []
+}

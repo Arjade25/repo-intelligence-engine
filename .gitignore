@@ -12,6 +12,9 @@ dist/
 # The cloned target repos do not — each is reproducible from its tasks file (url+commit).
 benchmarks/target-repo/
 benchmarks/target-repo-nest/
+# Candidate targets being screened (npm run screen); their tsconfig.rie.*.json files
+# are committed under benchmarks/candidates-config/ instead.
+benchmarks/candidates/
 
 # Local tool state (includes a log of prompts) - never commit
 .codetree/

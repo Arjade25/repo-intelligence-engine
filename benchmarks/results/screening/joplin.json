@@ -1,0 +1,80 @@
+{
+  "tsconfig": "benchmarks/candidates/joplin/packages/lib/tsconfig.rie.json",
+  "files": 521,
+  "unresolved_internal": 1,
+  "long_threshold": 6,
+  "source_groups": [
+    218,
+    2,
+    2
+  ],
+  "runtime_groups": [
+    {
+      "size": 13,
+      "median_loop": 7,
+      "max_loop": 7,
+      "long_members": 13,
+      "histogram": {
+        "7": 13
+      },
+      "longest_loop_member": "services/PostMessageService.ts"
+    },
+    {
+      "size": 11,
+      "median_loop": 2,
+      "max_loop": 3,
+      "long_members": 0,
+      "histogram": {
+        "2": 9,
+        "3": 2
+      },
+      "longest_loop_member": "services/rest/routes/master_keys.ts"
+    },
+    {
+      "size": 4,
+      "median_loop": 2,
+      "max_loop": 2,
+      "long_members": 0,
+      "histogram": {
+        "2": 4
+      },
+      "longest_loop_member": "models/Folder.ts"
+    },
+    {
+      "size": 4,
+      "median_loop": 2,
+      "max_loop": 2,
+      "long_members": 0,
+      "histogram": {
+        "2": 4
+      },
+      "longest_loop_member": "models/Setting.ts"
+    },
+    {
+      "size": 2,
+      "median_loop": 2,
+      "max_loop": 2,
+      "long_members": 0,
+      "histogram": {
+        "2": 2
+      },
+      "longest_loop_member": "models/BaseItem.ts"
+    },
+    {
+      "size": 2,
+      "median_loop": 2,
+      "max_loop": 2,
+      "long_members": 0,
+      "histogram": {
+        "2": 2
+      },
+      "longest_loop_member": "Synchronizer.ts"
+    }
+  ],
+  "overall": {
+    "members": 36,
+    "median_loop": 2,
+    "max_loop": 7,
+    "long_members": 13
+  }
+}

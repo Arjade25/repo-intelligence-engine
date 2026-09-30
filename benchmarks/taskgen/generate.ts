@@ -103,6 +103,14 @@ export interface TrapTask extends TaskBase {
     graph: "runtime" | "source";
     a_to_b: string[];
     b_to_a: string[];
+    /**
+     * Whether each direction has a runtime import path (both true for "yes"). A "no"
+     * answer must name the direction(s) that fail: yes/no alone let an agent that
+     * always answers "no" score 100% on a repo with no runtime cycles (TypeORM,
+     * Babylon.js). Absent from task files generated before this was added.
+     */
+    runtime_a_to_b?: boolean;
+    runtime_b_to_a?: boolean;
   };
 }
 
@@ -427,12 +435,22 @@ export function generateTasks(opts: GenerateOptions): GeneratedTaskSet {
       taskId("type-trap", i),
       `Is there a runtime circular dependency between ${c.a} and ${c.b}? That is, can each file reach ` +
         `the other through imports that survive compilation to JavaScript, ignoring imports TypeScript ` +
-        `erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction.`
+        `erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. ` +
+        `If no, say which direction has no such runtime path: from ${c.a} to ${c.b}, from ${c.b} to ${c.a}, or both.`
     ),
     category: "runtime_type_trap",
     validator: "runtime_cycle_yes_no",
     difficulty: { scc_size: c.sccSize, min_path: tripLength(c), ...pathTags([c.ab, c.ba]) },
-    expected: { answer, a: c.a, b: c.b, graph: answer ? "runtime" : "source", a_to_b: c.ab, b_to_a: c.ba },
+    expected: {
+      answer,
+      a: c.a,
+      b: c.b,
+      graph: answer ? "runtime" : "source",
+      a_to_b: c.ab,
+      b_to_a: c.ba,
+      runtime_a_to_b: answer || reaches(c.a, c.b),
+      runtime_b_to_a: answer || reaches(c.b, c.a),
+    },
   }));
 
   // --- Category 4: change impact -------------------------------------------------

@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "useDefineForClassFields": true,
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "noEmit": true,
+    "jsx": "react",
+    "lib": ["es2022", "es2024.promise", "dom", "dom.iterable", "ESNext.Collection"],
+    "strict": true,
+    "types": [],
+    "skipLibCheck": true
+  },
+  "include": ["./src/**/*.ts", "./src/**/*.tsx"],
+  "exclude": ["./src/test/**", "./src/**/*.test.ts", "./src/**/*.test.tsx", "./src/**/*.test.browser.ts", "./src/**/*.d.ts"]
+}

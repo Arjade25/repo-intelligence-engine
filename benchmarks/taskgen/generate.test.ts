@@ -166,8 +166,10 @@ describe("validateImportPath on a reachable task", () => {
 describe("validators", () => {
   const set = generateTasks({ tsconfigPath: TSCONFIG, repo: "fixture/taskgen-repo", idPrefix: "fx", maxPerCategory: 1 });
   const cycle = set.tasks.find((t): t is CycleTraceTask => t.category === "cycle_trace")!;
-  const trap = set.tasks.find((t): t is TrapTask => t.category === "runtime_type_trap")!;
   const impact = set.tasks.find((t): t is ImpactTask => t.category === "change_impact")!;
+  const traps = generateTasks({ tsconfigPath: TSCONFIG, repo: "fixture/taskgen-repo", idPrefix: "fx" }).tasks.filter(
+    (t): t is TrapTask => t.category === "runtime_type_trap"
+  );
 
   it("rejects a cycle path that doesn't close, skips a hop, or starts elsewhere", () => {
     const ok = cycle.expected.example_cycle;
@@ -181,9 +183,35 @@ describe("validators", () => {
     expect(validateCyclePath(cycle, messy).valid).toBe(true);
   });
 
-  it("grades yes/no against the oracle's answer", () => {
-    expect(validateTrapAnswer(trap, trap.expected.answer)).toBe(true);
-    expect(validateTrapAnswer(trap, !trap.expected.answer)).toBe(false);
+  it("grades a yes against the oracle's answer", () => {
+    const yes = traps.find((t) => t.expected.answer)!;
+    expect(validateTrapAnswer(yes, true).valid).toBe(true);
+    expect(validateTrapAnswer(yes, false, "both").valid).toBe(false);
+  });
+
+  it("requires a no to name the direction with no runtime path, so a blanket 'no' can't score", () => {
+    // trap/ is e -> f -> g -> h at runtime, with h -> e type-only: exactly one
+    // direction of every pair is a runtime path.
+    for (const no of traps.filter((t) => !t.expected.answer)) {
+      const { runtime_a_to_b, runtime_b_to_a } = no.expected;
+      expect(runtime_a_to_b !== runtime_b_to_a).toBe(true);
+      const broken = runtime_a_to_b ? "b_to_a" : "a_to_b";
+      const other = runtime_a_to_b ? "a_to_b" : "b_to_a";
+      expect(validateTrapAnswer(no, false, broken).valid).toBe(true);
+      expect(validateTrapAnswer(no, false, other).valid).toBe(false);
+      expect(validateTrapAnswer(no, false, "both").valid).toBe(false);
+      expect(validateTrapAnswer(no, false)).toMatchObject({ valid: false, reason: expect.stringContaining(broken) });
+      expect(validateTrapAnswer(no, true).valid).toBe(false);
+    }
+  });
+
+  it("grades task files that predate the direction fields on yes/no alone", () => {
+    const no = traps.find((t) => !t.expected.answer)!;
+    const legacy: TrapTask = {
+      ...no,
+      expected: { ...no.expected, runtime_a_to_b: undefined, runtime_b_to_a: undefined },
+    };
+    expect(validateTrapAnswer(legacy, false).valid).toBe(true);
   });
 
   it("scores a partial impact answer by precision and recall", () => {

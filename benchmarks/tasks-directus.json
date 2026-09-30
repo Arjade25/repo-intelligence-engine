@@ -1,0 +1,14 @@
+{
+  "repo": {
+    "name": "directus",
+    "dir": "candidates/directus/api",
+    "url": "https://github.com/directus/directus.git",
+    "commit": "1694b19048c8523bc90dd1fd11566b748b155ec4",
+    "tsconfig": "tsconfig.rie.json",
+    "note": "directus/api, 837 non-test src files. Chosen by `npm run screen` for long runtime loops: a 157-file runtime cycle group in which 89 files (57%) have no loop back to themselves shorter than 6 files, longest 13 (see candidates-config/README.md). Selected on purpose - results here are conditional on long loops and must be reported that way. Compiler settings come from the npm package @directus/tsconfig node22 v4.0.0, which sets verbatimModuleSyntax. Clone sparsely (api/, packages/, root *.json) and copy candidates-config/directus-api.tsconfig.rie.json to api/tsconfig.rie.json."
+  },
+  "taskgen": {
+    "min_path": 6
+  },
+  "tasks": []
+}
