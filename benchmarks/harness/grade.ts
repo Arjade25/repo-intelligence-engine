@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { Task } from "../taskgen/generate.js";
 import {
   scoreImpact,
@@ -48,12 +50,50 @@ export function extractAnswerJson(text: string): unknown {
   return undefined;
 }
 
-/** Agents cite files every way they can: absolute, backslashed, ./-prefixed. */
+/**
+ * Agents cite files every way they can: absolute, backslashed, ./-prefixed - and,
+ * in a monorepo package, relative to the git root instead of the package the
+ * harness runs them in. The prompt says "relative to the repository root", and
+ * for directus/api the repository root IS the monorepo, so `api/src/app.ts` is a
+ * faithful reading of the instruction, not a wrong answer: a baseline run on
+ * directus found the correct loop and was failed only for that prefix. The prefix
+ * is stripped only when the path doesn't exist as written but does without it,
+ * so a real `api/` folder inside the package is never misread.
+ */
 export function toRepoRelative(file: string, repoRoot: string): string {
   let p = file.trim().replace(/^["'`]|["'`]$/g, "").replace(/\\/g, "/");
   const root = repoRoot.replace(/\\/g, "/").replace(/\/$/, "");
   if (p.toLowerCase().startsWith(root.toLowerCase() + "/")) p = p.slice(root.length + 1);
-  return p.replace(/^\.\//, "");
+  p = p.replace(/^\.\//, "");
+  const prefix = gitRootPrefix(root);
+  if (prefix && p.toLowerCase().startsWith(prefix.toLowerCase())) {
+    const stripped = p.slice(prefix.length);
+    if (!existsSync(join(root, p)) && existsSync(join(root, stripped))) p = stripped;
+  }
+  return p;
+}
+
+const prefixCache = new Map<string, string>();
+
+/** The package's path inside its git checkout, e.g. "api/" for directus/api; "" at a git root or outside git. */
+export function gitRootPrefix(repoRoot: string): string {
+  const cached = prefixCache.get(repoRoot);
+  if (cached !== undefined) return cached;
+  let prefix = "";
+  let dir = repoRoot;
+  const parts: string[] = [];
+  while (!existsSync(join(dir, ".git"))) {
+    const parent = dirname(dir);
+    if (parent === dir) {
+      parts.length = 0; // not in a git checkout: nothing to strip
+      break;
+    }
+    parts.unshift(dir.slice(parent.length).replace(/^[\\/]/, ""));
+    dir = parent;
+  }
+  if (parts.length > 0) prefix = parts.join("/") + "/";
+  prefixCache.set(repoRoot, prefix);
+  return prefix;
 }
 
 export interface Grade {

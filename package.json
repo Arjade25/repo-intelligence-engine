@@ -19,6 +19,7 @@
     "screen": "tsx benchmarks/oracle/screen.ts",
     "taskgen": "tsx benchmarks/taskgen/cli.ts",
     "harness": "tsx benchmarks/harness/cli.ts",
+    "regrade": "tsx benchmarks/harness/regrade.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

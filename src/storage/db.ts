@@ -23,6 +23,12 @@ export interface EdgeRow {
   edge_type: string;
   /** 1 for type-only imports/re-exports, which TypeScript erases at compile time. */
   is_type_only: number;
+  /** 1-based line of the statement in from_file; null in indexes built before it existed. */
+  line: number | null;
+  /** The statement's text, whitespace-collapsed and truncated; null likewise. */
+  statement: string | null;
+  /** The imported/re-exported name, even when to_symbol_id is NULL; null for edges that name nothing. */
+  imported_name: string | null;
 }
 
 export interface ReferenceRow {
@@ -66,6 +72,9 @@ function migrate(db: Database.Database): void {
   if (!columns.some((c) => c.name === "is_type_only")) {
     db.exec(`ALTER TABLE edges ADD COLUMN is_type_only INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!columns.some((c) => c.name === "line")) db.exec(`ALTER TABLE edges ADD COLUMN line INTEGER`);
+  if (!columns.some((c) => c.name === "statement")) db.exec(`ALTER TABLE edges ADD COLUMN statement TEXT`);
+  if (!columns.some((c) => c.name === "imported_name")) db.exec(`ALTER TABLE edges ADD COLUMN imported_name TEXT`);
 }
 
 /**

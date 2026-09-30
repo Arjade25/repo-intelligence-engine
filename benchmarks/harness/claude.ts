@@ -128,6 +128,8 @@ export interface ClaudeRunRequest {
   /** Omitted for the no-tool baseline. */
   mcpConfigPath?: string;
   model?: string;
+  /** Kill the session after this long. Without it one stalled API call hung a run for 66 min. */
+  timeoutMs?: number;
 }
 
 export interface ClaudeRunOutput {
@@ -172,9 +174,13 @@ export function runClaude(claudeBin: string, req: ClaudeRunRequest): ClaudeRunOu
     shell: false,
     stdio: "pipe",
     maxBuffer: 64 * 1024 * 1024,
+    ...(req.timeoutMs !== undefined && { timeout: req.timeoutMs }),
   });
   const wall_ms = Date.now() - started;
 
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") {
+    throw new Error(`session ${sessionId} timed out after ${Math.round(wall_ms / 60_000)} min and was killed`);
+  }
   if (result.error) {
     throw new Error(
       `could not spawn "${claudeBin}": ${(result.error as NodeJS.ErrnoException).code ?? result.error.message}`

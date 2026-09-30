@@ -9,6 +9,7 @@
  * drive the real server over an InMemoryTransport-linked client, without spawning
  * a stdio subprocess — see mcp-server/index.test.ts.
  */
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -20,7 +21,8 @@ import {
   findRelatedFiles,
   findSymbolReferences,
   dependencyPath,
-  findCircularDependencies,
+  circularDependencyReport,
+  findCycleThroughFile,
   reindex,
 } from "../engine/index.js";
 import { describeUnresolved } from "../indexer/resolution.js";
@@ -31,6 +33,9 @@ function json(data: unknown) {
 
 export function createServer(db: Database.Database, tsconfigPath: string): McpServer {
   const server = new McpServer({ name: "repo-intelligence-engine", version: "0.1.0" });
+  // Cycle tools report paths relative to the tsconfig's directory - the repo root an
+  // agent works in - since absolute paths were most of their output's size.
+  const root = dirname(resolve(tsconfigPath));
 
   server.tool(
     "find_module",
@@ -85,19 +90,46 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
   server.tool(
     "find_circular_dependencies",
     "Import cycles in the repo. Returns one entry per mutually-entangled group of files " +
-      "(a strongly connected component), each with a concrete example cycle. Groups are ordered " +
-      "largest first. An empty array means the import graph is acyclic. " +
+      "(a strongly connected component) with its size and one example cycle, largest group first. " +
+      "An empty groups array means the import graph is acyclic. Member lists are included for small " +
+      "groups only (pass include_files for all). To ask whether a SPECIFIC file is in a cycle, or for a " +
+      "loop through it, use find_cycle_through_file instead. " +
       "By default only RUNTIME cycles are reported: `import type` edges are erased by the " +
       "TypeScript compiler and cannot cause a runtime cycle. Pass include_type_only to see " +
-      "source-level entanglement too — that number is usually much larger and is not a bug.",
+      "source-level entanglement too - that number is usually much larger and is not a bug.",
     {
       include_type_only: z
         .boolean()
         .optional()
         .describe("count type-only imports as edges (default false)"),
+      include_files: z
+        .boolean()
+        .optional()
+        .describe("list every member of every group, not just small groups (default false)"),
     },
-    async ({ include_type_only }) =>
-      json(findCircularDependencies(db, { includeTypeOnly: include_type_only }))
+    async ({ include_type_only, include_files }) =>
+      json(circularDependencyReport(db, { includeTypeOnly: include_type_only, includeFiles: include_files, root }))
+  );
+
+  server.tool(
+    "find_cycle_through_file",
+    "The shortest import cycle that starts and ends at this file, as an ordered file chain - or in_cycle:false " +
+      "if none exists (the search is exhaustive; files_searched says how far it reached). Each entry in hops is " +
+      "the evidence for one step: the statement's file:line and text, and runtime_names - the imported names " +
+      "the type checker found used as values, so they survive compilation (a plain `import { A }` used only " +
+      "as a type is erased even without the `type` keyword). Runtime imports only " +
+      "by default: type-only imports are erased at compile time; when there is no runtime cycle, " +
+      "type_only_cycle_exists says whether one appears once they are counted. Accepts absolute or " +
+      "repo-relative paths, any slash style.",
+    {
+      file_path: z.string().describe("file path (absolute or repo-relative, any slash style)"),
+      include_type_only: z
+        .boolean()
+        .optional()
+        .describe("count type-only imports as edges (default false)"),
+    },
+    async ({ file_path, include_type_only }) =>
+      json(findCycleThroughFile(db, file_path, { includeTypeOnly: include_type_only, root }))
   );
 
   server.tool(
