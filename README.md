@@ -95,6 +95,7 @@ There are two harnesses. They answer different questions:
 | directus · generated cycle tracing (long loops) | 10 × 5 | 50/50, $0.157 / 36 s per session | **50/50, $0.039 / 15 s** | ~4× cheaper in dollars, ~2.4× faster |
 | element-web · generated cycle tracing (long loops) | 10 × 5 | 50/50, $0.374 / 81 s per session | **50/50, $0.045 / 16 s** | ~8× cheaper in dollars, ~5× faster |
 | directus · cycle tracing vs **Bash + madge** | 10 × 5 | 50/50, $0.099 / 69 s per session | **50/50, $0.037 / 13 s** | ~2.7× cheaper in dollars, ~5× faster than the fair competitor |
+| element-web · cycle tracing vs **Bash + madge** | 10 × 5 | 49/50, $0.117 / 78 s per session | **50/50, $0.047 / 14 s** | ~2.5× cheaper in dollars, ~5.6× faster |
 
 ### Hand-written tasks: TypeORM
 
@@ -204,8 +205,10 @@ Each task names a file and asks for a runtime import chain that leads back to it
 | | rie | 50/50 | **$0.045** | **16 s** | **1** | 27K | 28K [18–29K] |
 | directus, 10-01 (vs a shell) | bash-madge | 50/50 | $0.099 | 69 s | 4 | 98K | 92K [69–110K] |
 | | rie | 50/50 | **$0.037** | **13 s** | **1** | 27K | 26K [26–27K] |
+| element-web, 10-06 (vs a shell) | bash-madge | 49/50 | $0.117 | 78 s | 4 | 102K | 98K [68–124K] |
+| | rie | 50/50 | **$0.047** | **14 s** | **1** | 30K | 28K [27–36K] |
 
-Result files are in `benchmarks/results/harness/`, named `directus-2026-09-29T10-12-50-834Z`, `directus-2026-09-30T07-10-55-765Z`, `directus-2026-09-30T10-30-32-403Z`, `element-web-2026-09-30T11-27-14-790Z` and `directus-2026-10-01T06-18-36-796Z`. The 10-01 run used Claude Code 2.1.285; the earlier runs used 2.1.283–2.1.284.
+Result files are in `benchmarks/results/harness/`, named `directus-2026-09-29T10-12-50-834Z`, `directus-2026-09-30T07-10-55-765Z`, `directus-2026-09-30T10-30-32-403Z`, `element-web-2026-09-30T11-27-14-790Z`, `directus-2026-10-01T06-18-36-796Z` and `element-web-2026-10-06T06-17-30-224Z`. The madge runs used Claude Code 2.1.285 (directus) and 2.1.289 (element-web), with the rie arm interleaved in each. The earlier runs used 2.1.283–2.1.284.
 
 **The first version lost.** On 09-29 the engine cost ~1.6× the baseline. Its cycle report ran to ~25K characters and stayed in context for the rest of the session. It also couldn't answer "a loop through file X", so agents grepped anyway. [Circular dependency detection](#circular-dependency-detection) describes the fixes, and each one was re-measured:
 - `find_cycle_through_file` brought it to ~2× cheaper.
@@ -222,12 +225,16 @@ The final directus rie run reuses that morning's baseline, which has the same mo
 
 That is 4 calls at $0.099 per session, cheaper than the Read/Grep baseline's $0.157, but the slowest arm at 69 s, because each madge pass over 837 files takes tens of seconds. The engine was ~2.7× cheaper and ~5× faster, at equal accuracy. Answer quality also differed slightly: 15 of 50 madge answers gave a longer loop than necessary, and the engine always gave the shortest.
 
-madge is also not a runtime-cycle oracle. It has no type checker, so a plain `import { T }` used only as a type still counts as an edge. Offline on directus, it placed 40 files in cycles that the emit-verified runtime graph does not have. The agents' habit of checking each hop kept that from producing a wrong answer here. The rie arm ran in the same session, interleaved, so the CLI version change between runs doesn't affect this comparison.
+madge is also not a runtime-cycle oracle. It has no type checker, so a plain `import { T }` used only as a type still counts as an edge. Offline on directus, it placed 40 files in cycles that the emit-verified runtime graph does not have. The agents' habit of checking each hop kept that from producing a wrong answer. The rie arm ran in the same session, interleaved, so the CLI version change between runs doesn't affect this comparison.
+
+**On element-web the result held: ~2.5× cheaper and ~5.6× faster.** madge's cost didn't grow with loop length. It stayed at $0.07–0.17 per task for loops of 6 to 12 files, because exporting the whole graph and searching it costs about the same however long the loop is. That's why it gets far closer to the engine than the Read/Grep baseline does, which climbed past $1 on the longest loops. 20 of its 50 answers were longer than the shortest loop.
+
+The one wrong madge answer is partly the task's fault. The agent followed a dynamic `import("../stores/room-list-v3/RoomListStoreV3")` in `StoresApi.ts`. element-web's developers added it there, by their own comment, "to prevent circular dependency issues": it loads lazily, after the importing file has finished loading, so it isn't a load-time cycle, and the grader is right to reject it. But the cycle-task prompt never said dynamic `import()` calls don't count, while the path-task prompt did. madge includes them in its graph, so the ambiguity worked against it. Strictly, that's 49/50; with this ambiguity excluded, it's 50/50. Newly generated cycle and trap prompts now state the rule. The grader also used to blame the wrong step here (`EventTileFactory → Api`, a real import), because it only knows the start file's cycle group. It now reports that `src/modules/Api.ts` is outside the group instead.
 
 **How to read these numbers:**
 - **Dollars and wall time are the headline, not tokens.** Most of the baseline's tokens are its growing context re-read from cache on every turn, and cache reads are cheap. The token ratios (~8× on directus, ~31× on element-web) overstate the real saving by 2–4×.
-- **The baseline has Read, Grep and Glob only.** It has no shell, so it can't run `madge --circular` or `tsc`, which a developer would reach for. Against that baseline the engine is ~4–8× cheaper. Against the bash-madge arm on directus it is ~2.7× cheaper, and that's the number to quote. The bash-madge arm hasn't been run on element-web yet.
-- **No session reached the answers.** Target repos sit inside this project, a few folders below the generated tasks and their expected answers. `npm run audit` scans every session's tool calls for paths outside the target checkout, or any reference to the answer files. It found nothing in all 450 long-loop sessions, and each results file carries its `meta.audit` record.
+- **The baseline has Read, Grep and Glob only.** It has no shell, so it can't run `madge --circular` or `tsc`, which a developer would reach for. Against that baseline the engine is ~4–8× cheaper. Against the bash-madge arm it is ~2.7× cheaper on directus and ~2.5× on element-web, and ~5× faster on both. Those are the numbers to quote.
+- **No session reached the answers.** Target repos sit inside this project, a few folders below the generated tasks and their expected answers. `npm run audit` scans every session's tool calls for paths outside the target checkout, or any reference to the answer files. It found nothing in all 550 long-loop sessions, and each results file carries its `meta.audit` record.
 - **The tasks fit the tool.** `find_cycle_through_file` was built after these tasks exposed the gap, and it answers exactly their question. Path and runtime-vs-type trap tasks on the same repos haven't been run yet.
 - **The one-time index build isn't counted.** It takes a few minutes on element-web, before any session starts.
 
@@ -241,9 +248,9 @@ This is not "faster than grep." Where a name search can answer the question dire
 The large, repeatable wins all come from multi-hop and whole-graph questions, the two things text search structurally cannot do:
 - long import paths: ~15× fewer tokens on TypeORM, and ~3.2× on nest paths that exist
 - runtime-cycle detection over a whole repo: ~46× fewer tokens on TypeORM, and ~107× on nest
-- tracing a cycle through a given file in repos with long loops: ~4× cheaper in dollars on directus and ~8× on element-web than a Read/Grep agent. Against an agent with a shell and madge it was ~2.7× cheaper and ~5× faster on directus. All at equal accuracy (see the caveats [above](#generated-graded-tasks-long-loop-repos-directus-element-web)).
+- tracing a cycle through a given file in repos with long loops: ~4× cheaper in dollars on directus and ~8× on element-web than a Read/Grep agent. Against an agent with a shell and madge it was ~2.5–2.7× cheaper and ~5× faster on both repos. All at equal or better accuracy (see the caveats [above](#generated-graded-tasks-long-loop-repos-directus-element-web)).
 
-In the 370 graded nest sessions, accuracy was essentially the same in both arms (183/185 baseline, 184/185 assisted). In the 450 long-loop sessions, every arm answered every cycle task correctly. On these tasks, the engine changes what a correct answer costs, not whether the agent finds it.
+In the 370 graded nest sessions, accuracy was essentially the same in both arms (183/185 baseline, 184/185 assisted). In the 550 long-loop sessions, every arm answered every cycle task correctly except one bash-madge session, which followed a dynamic `import()` that the cycle prompt hadn't yet ruled out. On these tasks, the engine changes what a correct answer costs, not whether the agent finds it.
 
 ## Circular dependency detection
 

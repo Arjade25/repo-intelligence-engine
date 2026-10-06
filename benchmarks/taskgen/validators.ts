@@ -28,11 +28,23 @@ export function validateCyclePath(task: CycleTraceTask, answer: string[]): Cycle
   if (path[0] !== start) return { valid: false, reason: `path must start at ${start}` };
   if (path[path.length - 1] !== start) return { valid: false, reason: `path must end at ${start}` };
 
+  // The edge set covers only start's SCC, so a step to a file outside it is not
+  // necessarily a missing import - it may be a real one that simply can't lead
+  // back. Say which: an element-web answer was once blamed on a valid import
+  // (EventTileFactory -> Api) when its actual break was two steps later, a hop that
+  // existed only as a dynamic import().
   const edges = new Set(scc_runtime_edges.map(([from, to]) => `${from}\u0000${to}`));
+  const members = new Set(task.expected.scc_members);
   for (let i = 0; i + 1 < path.length; i++) {
-    if (!edges.has(`${path[i]}\u0000${path[i + 1]}`)) {
-      return { valid: false, reason: `no runtime import ${path[i]} -> ${path[i + 1]}` };
+    const [from, to] = [path[i], path[i + 1]];
+    if (edges.has(`${from}\u0000${to}`)) continue;
+    if (!members.has(to)) {
+      return {
+        valid: false,
+        reason: `${to} is not in ${start}'s runtime cycle group, so no runtime import chain from it leads back (step ${from} -> ${to})`,
+      };
     }
+    return { valid: false, reason: `no runtime import ${from} -> ${to}` };
   }
   return { valid: true };
 }
