@@ -8,7 +8,7 @@ AI coding agents start every session with zero structural memory of a repo. Answ
 
 ## What it does
 
-The engine parses a TypeScript repo with the **TypeScript Compiler API** and stores a structural model in **SQLite**. Six queries run over that index:
+The engine parses a TypeScript repo with the **TypeScript Compiler API** and stores a structural model in **SQLite**. Six queries, plus a full rebuild, run over that index:
 
 | Query | Answers |
 |---|---|
@@ -23,6 +23,8 @@ The engine parses a TypeScript repo with the **TypeScript Compiler API** and sto
 The `engine/` functions are callable directly (CLI, tests) — the engine is the product. It also supports Claude Code and any other MCP-compatible client through an integrated MCP server.
 
 Every path-taking query accepts absolute or repo-relative paths, with either slash style, matched case-insensitively. When a path or name matches nothing, every query says so explicitly (`file_indexed: false`, `symbol_indexed: false`, or a `note`) rather than returning a bare empty list. Agents treat an empty list as "no results" and fall back to grep, which the benchmark caught happening (see † below). `find_module` was the last to return a bare `[]`; on a miss it now also lists `similar_names` that match ignoring case. When `dependency_path` finds no path, it says how many files the search reached (`files_searched`) and that the search was exhaustive. The MCP `reindex` tool takes no arguments: every rebuild covers the whole repo.
+
+A symbol is a top-level `class`, `function`, `interface`, `type`, `const` or `enum` declaration. Methods, properties, enum members, namespaces, non-`const` variables and locals are not indexed, and a miss on one of those says so rather than implying the name is unused. Enums were added late. Before that, `find_symbol_references("HttpStatus")` on nest answered "not in the index", which reads as unused; it now returns 141 references across 38 files. A `const enum` is indexed the same way: its members are inlined at emit, but every use is still a reference the type checker resolves.
 
 ## Architecture
 
@@ -99,7 +101,7 @@ There are two harnesses. They answer different questions:
 
 ### Hand-written tasks: TypeORM
 
-Measured against [TypeORM](https://github.com/typeorm/typeorm) @ `04ff4dae`: 496 source files, 1,108 indexed symbols, 2,750 import edges. Nine fixed navigation tasks (`benchmarks/tasks.json`). These counts were re-verified on 2026-09-28 by re-indexing with the now-committed `benchmarks/tsconfig.rie.typeorm.json`. That also gives 1,565 erased edges, 189 star re-exports and 13,517 references, 0 unresolved imports, and 0 runtime cycles (227 + 2 files with type-only edges counted). The benchmark runs below used that index. Since then, the indexer also records bare `require()` calls and matches the compiler's erasure in three more cases (see [Checking it edge by edge](#checking-it-edge-by-edge)). The current index has 2,751 edges, 1,568 of them erased; the symbols, star re-exports and cycle results are unchanged.
+Measured against [TypeORM](https://github.com/typeorm/typeorm) @ `04ff4dae`: 496 source files, 1,108 indexed symbols, 2,750 import edges. Nine fixed navigation tasks (`benchmarks/tasks.json`). These counts were re-verified on 2026-09-28 by re-indexing with the now-committed `benchmarks/tsconfig.rie.typeorm.json`. That also gives 1,565 erased edges, 189 star re-exports and 13,517 references, 0 unresolved imports, and 0 runtime cycles (227 + 2 files with type-only edges counted). The benchmark runs below used that index. Since then, the indexer also records bare `require()` calls and matches the compiler's erasure in three more cases (see [Checking it edge by edge](#checking-it-edge-by-edge)). The current index has 2,751 edges, 1,568 of them erased; the star re-exports and cycle results are unchanged. Indexing enums as symbols (see [What it does](#what-it-does)) later added 1 symbol and raised references to 13,655; edges are unaffected.
 
 #### Where the engine does *not* help
 
@@ -141,7 +143,7 @@ Baseline cost varies widely from run to run (15–24 calls on the path task, 14�
 
 ### Hand-written tasks: nest
 
-Measured against [nestjs/nest](https://github.com/nestjs/nest) @ `40d07dc6`: 664 non-spec source files, 1,473 indexed symbols, 3,442 file-level edges. Four tasks (`benchmarks/tasks-nest.json`), 5 runs per arm. Medians:
+Measured against [nestjs/nest](https://github.com/nestjs/nest) @ `40d07dc6`: 664 non-spec source files, 1,473 indexed symbols, 3,442 file-level edges. (Indexing enums later raised the symbol count to 1,507; the edges are unchanged.) Four tasks (`benchmarks/tasks-nest.json`), 5 runs per arm. Medians:
 
 | Task | Baseline (calls / tokens) | Assisted (calls / tokens) | |
 |---|---|---|---|
@@ -229,7 +231,7 @@ madge is also not a runtime-cycle oracle. It has no type checker, so a plain `im
 
 **On element-web the result held: ~2.5× cheaper and ~5.6× faster.** madge's cost didn't grow with loop length. It stayed at $0.07–0.17 per task for loops of 6 to 12 files, because exporting the whole graph and searching it costs about the same however long the loop is. That's why it gets far closer to the engine than the Read/Grep baseline does, which climbed past $1 on the longest loops. 20 of its 50 answers were longer than the shortest loop.
 
-The one wrong madge answer is partly the task's fault. The agent followed a dynamic `import("../stores/room-list-v3/RoomListStoreV3")` in `StoresApi.ts`. element-web's developers added it there, by their own comment, "to prevent circular dependency issues": it loads lazily, after the importing file has finished loading, so it isn't a load-time cycle, and the grader is right to reject it. But the cycle-task prompt never said dynamic `import()` calls don't count, while the path-task prompt did. madge includes them in its graph, so the ambiguity worked against it. Strictly, that's 49/50; with this ambiguity excluded, it's 50/50. Newly generated cycle and trap prompts now state the rule. The grader also used to blame the wrong step here (`EventTileFactory → Api`, a real import), because it only knows the start file's cycle group. It now reports that `src/modules/Api.ts` is outside the group instead.
+The one wrong madge answer is partly the task's fault. The agent followed a dynamic `import("../stores/room-list-v3/RoomListStoreV3")` in `StoresApi.ts`. element-web's developers added it there, by their own comment, "to prevent circular dependency issues": it loads lazily, after the importing file has finished loading, so it isn't a load-time cycle, and the grader is right to reject it. But the cycle-task prompt never said dynamic `import()` calls don't count, while the path-task prompt did. madge includes them in its graph, so the ambiguity worked against it. Scored strictly, madge got 49/50, or 50/50 if this ambiguous task is excluded. Newly generated cycle and trap prompts now state the rule. The grader also used to blame the wrong step here (`EventTileFactory → Api`, a real import), because it only knows the start file's cycle group. It now reports that `src/modules/Api.ts` is outside the group instead.
 
 **How to read these numbers:**
 - **Dollars and wall time are the headline, not tokens.** Most of the baseline's tokens are its growing context re-read from cache on every turn, and cache reads are cheap. The token ratios (~8× on directus, ~31× on element-web) overstate the real saving by 2–4×.
@@ -374,21 +376,21 @@ The fix for nest was to point the aliases at files (`"@nestjs/common": ["./packa
 
 ## Test suite
 
-`npm test` runs **188 tests in 12 files, all passing** (vitest, 2026-09-29). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. They don't need a cloned benchmark target.
+`npm test` runs **231 tests in 12 files, all passing** (vitest, 2026-10-06). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. They don't need a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
-| `src/engine/index.test.ts` | All six queries, explicit not-found results, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path `dependency_path` | 41 |
-| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata | 40 |
-| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums, decorator metadata, unresolved internal imports | 33 |
-| `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed, trap direction grading | 23 |
-| `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading, summaries (stub agent) | 11 |
-| `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 9 |
+| `src/engine/index.test.ts` | All six queries, explicit not-found results, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path `dependency_path`, `find_cycle_through_file` and its per-hop evidence | 52 |
+| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata | 52 |
+| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums, decorator metadata, unresolved internal imports | 35 |
+| `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed, trap direction grading | 25 |
+| `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 23 |
+| `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 10 |
 | `src/indexer/erasure.test.ts` | Value-position analysis, `verbatimModuleSyntax` gate | 8 |
 | `benchmarks/oracle/tarjan.test.ts` | Independent SCC implementation | 6 |
 | `benchmarks/oracle/loops.test.ts` | Shortest loop through each cycle member (`npm run screen`) | 6 |
 | `src/indexer/resolution.test.ts` | Unresolved internal import detection (ESM directory aliases, bare `require()`, asset imports ignored) | 5 |
-| `src/indexer/references.test.ts` | `findReferences` union across alias groups | 4 |
+| `src/indexer/references.test.ts` | `findReferences` union across alias groups; regular and `const` enums as symbols, with every use and re-export | 7 |
 | `src/engine/reindex.test.ts` | A full rebuild is idempotent and reflects added and removed files | 2 |
 
 ## Development
@@ -426,7 +428,7 @@ npm run build
 npm run index -- benchmarks/target-repo-nest/tsconfig.rie.json benchmarks/nest-index.db
 ```
 
-The index takes about 40 s: 1,473 symbols, 3,442 edges and 10,082 references. Until it exists, the MCP server in `.mcp.json` opens an empty database and every query returns nothing. TypeORM works the same way, from `benchmarks/tasks.json`:
+The index takes about 40 s: 1,507 symbols, 3,442 edges and 10,857 references. Until it exists, the MCP server in `.mcp.json` opens an empty database and every query returns nothing. TypeORM works the same way, from `benchmarks/tasks.json`:
 
 ```bash
 git clone https://github.com/typeorm/typeorm.git benchmarks/target-repo

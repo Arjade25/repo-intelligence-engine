@@ -62,7 +62,7 @@ export function normalizePath(p: string): string {
   return p.replace(/\\/g, "/");
 }
 
-const SYMBOL_KINDS = ["class", "function", "interface", "type", "const"] as const;
+const SYMBOL_KINDS = ["class", "function", "interface", "type", "const", "enum"] as const;
 export type SymbolKind = (typeof SYMBOL_KINDS)[number];
 
 export interface TopLevelDeclaration {
@@ -75,9 +75,14 @@ export interface TopLevelDeclaration {
 }
 
 /**
- * Walk a file's top-level statements and list its class/function/interface/type/const
+ * Walk a file's top-level statements and list its class/function/interface/type/const/enum
  * declarations. Shared by extractSymbols (below) and indexer/references.ts, so both
  * agree on exactly what counts as an indexable top-level symbol.
+ *
+ * `const enum` is indexed as kind 'enum' too: its members are inlined at emit, but
+ * every use is still a reference the type checker resolves, and removing its export
+ * breaks the same files. A merged enum (declared twice) gets one row per declaration,
+ * as merged interfaces already do.
  */
 export function getTopLevelDeclarations(sourceFile: ts.SourceFile): TopLevelDeclaration[] {
   const results: TopLevelDeclaration[] = [];
@@ -91,6 +96,8 @@ export function getTopLevelDeclarations(sourceFile: ts.SourceFile): TopLevelDecl
       results.push({ name: stmt.name.text, kind: "interface", nameNode: stmt.name, node: stmt });
     } else if (ts.isTypeAliasDeclaration(stmt)) {
       results.push({ name: stmt.name.text, kind: "type", nameNode: stmt.name, node: stmt });
+    } else if (ts.isEnumDeclaration(stmt)) {
+      results.push({ name: stmt.name.text, kind: "enum", nameNode: stmt.name, node: stmt });
     } else if (ts.isVariableStatement(stmt)) {
       const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
       if (!isConst) continue;

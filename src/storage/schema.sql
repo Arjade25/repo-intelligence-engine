@@ -6,7 +6,7 @@
 CREATE TABLE IF NOT EXISTS symbols (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  kind TEXT NOT NULL,        -- 'class' | 'function' | 'interface' | 'type' | 'const'
+  kind TEXT NOT NULL,        -- 'class' | 'function' | 'interface' | 'type' | 'const' | 'enum'
   file_path TEXT NOT NULL,
   line_start INTEGER,
   line_end INTEGER

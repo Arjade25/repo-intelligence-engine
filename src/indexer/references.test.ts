@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { openDb } from "../storage/db.js";
 import { indexRepository, loadTsconfig } from "./index.js";
 import { createLanguageService, indexReferences } from "./references.js";
-import { findSymbolReferences } from "../engine/index.js";
+import { findModule, findSymbolReferences } from "../engine/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_TSCONFIG = join(__dirname, "../../fixtures/sample-repo/tsconfig.json");
@@ -49,5 +49,53 @@ describe("indexReferences (fixtures/sample-repo)", () => {
     for (const ref of references) {
       expect(ref.used_in_file).not.toMatch(/\/shapes\.ts$/);
     }
+  });
+});
+
+/**
+ * Enums used to be skipped entirely, so find_symbol_references reported nest's
+ * HttpStatus as "not in the index" while 38 files would break without its export.
+ * Expected sites are hand-traced from fixtures/const-enum-repo, not taken from the
+ * engine: every import binding and every `X.Member` use, plus the bare re-export.
+ */
+describe("indexReferences: enums (fixtures/const-enum-repo)", () => {
+  const tsconfig = join(__dirname, "../../fixtures/const-enum-repo/tsconfig.json");
+  const db = openDb(":memory:");
+  indexRepository(db, tsconfig);
+  const { fileNames, options } = loadTsconfig(tsconfig);
+  indexReferences(db, createLanguageService(fileNames, options));
+
+  const sites = (symbol: string) =>
+    findSymbolReferences(db, symbol)
+      .references.map((r) => `${r.used_in_file.split("/").pop()}:${r.line}`)
+      .sort();
+
+  it("indexes regular and const enums as kind 'enum', with their line spans", () => {
+    for (const [name, lineStart, lineEnd] of [["Color", 1, 4], ["Size", 5, 8]] as const) {
+      const { symbol_indexed, declarations } = findModule(db, name);
+      expect(symbol_indexed).toBe(true);
+      expect(declarations).toHaveLength(1);
+      expect(declarations[0]).toMatchObject({ kind: "enum", line_start: lineStart });
+      expect(declarations[0].file_path).toMatch(/\/enums\.ts$/);
+      const row = db.prepare(`SELECT line_end FROM symbols WHERE name = ?`).get(name) as { line_end: number };
+      expect(row.line_end).toBe(lineEnd);
+    }
+  });
+
+  it("finds every use of a regular enum", () => {
+    expect(sites("Size")).toEqual(["mixedEnums.ts:2", "mixedEnums.ts:4", "usesRegularEnum.ts:2", "usesRegularEnum.ts:4"]);
+  });
+
+  it("finds every use of a const enum, including both kinds of re-export", () => {
+    // Members are inlined at emit, but these are still type-checked references.
+    expect(sites("Color")).toEqual([
+      "localReexportConstEnum.ts:4",
+      "localReexportConstEnum.ts:6",
+      "mixedEnums.ts:2",
+      "mixedEnums.ts:4",
+      "reexportConstEnum.ts:2",
+      "usesConstEnum.ts:3",
+      "usesConstEnum.ts:5",
+    ]);
   });
 });

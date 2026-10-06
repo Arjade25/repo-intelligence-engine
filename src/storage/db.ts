@@ -9,7 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export interface SymbolRow {
   id: number;
   name: string;
-  kind: "class" | "function" | "interface" | "type" | "const";
+  kind: "class" | "function" | "interface" | "type" | "const" | "enum";
   file_path: string;
   line_start: number | null;
   line_end: number | null;

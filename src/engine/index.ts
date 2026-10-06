@@ -121,7 +121,7 @@ export function findModule(db: Database.Database, name: string): FindModuleResul
     ...(similar.length > 0 && { similar_names: similar }),
     note:
       `No top-level declaration named "${name}" is indexed. Only top-level class/function/` +
-      `interface/type/const declarations are - methods, properties, enums, namespaces, ` +
+      `interface/type/const/enum declarations are - methods, properties, enum members, namespaces, ` +
       `non-const variables and locals are not, so this does NOT mean the name is absent from the repo.`,
   };
 }
@@ -286,7 +286,7 @@ export function findSymbolReferences(
   if (!result.symbol_indexed) {
     result.note =
       `"${symbol}" is not in the index. Only top-level declarations (class/function/` +
-      `interface/type/const) are indexed - methods, properties, and locals are not. ` +
+      `interface/type/const/enum) are indexed - methods, properties, enum members, and locals are not. ` +
       `An empty reference list here does NOT mean the name is unused.`;
   }
   return result;
@@ -313,7 +313,7 @@ export function dependencyPath(db: Database.Database, a: string, b: string): Dep
       const files = filesOfSymbol(db, arg);
       if (files.length === 0) {
         notes.push(
-          `"${arg}" is not an indexed symbol (only top-level class/function/interface/type/const ` +
+          `"${arg}" is not an indexed symbol (only top-level class/function/interface/type/const/enum ` +
             `declarations are), so no path was searched. Pass a file path instead.`
         );
       }
