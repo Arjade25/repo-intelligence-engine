@@ -40,7 +40,13 @@
           }
         ]
       }
-    ]
+    ],
+    "audit": {
+      "at": "2026-10-01T07:47:22.976Z",
+      "checkout": "D:/RIE/repo-intelligence-engine/benchmarks/candidates/directus",
+      "sessions_scanned": 100,
+      "flagged": []
+    }
   },
   "summary": {
     "by_task": [

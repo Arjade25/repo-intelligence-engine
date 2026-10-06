@@ -1,5 +1,5 @@
 {
-  "_comment": "Tool arms for the generated-task harness (npm run harness). Each arm runs alone: its MCP server is the only one loaded (--strict-mcp-config), on top of the same built-in Read/Grep/Glob every arm gets. Placeholders: ${NODE} ${PROJECT_ROOT} ${REPO_DIR} ${TSCONFIG} ${RIE_DB}. `setup` names a preparation step the harness knows how to run before any agent starts.",
+  "_comment": "Tool arms for the generated-task harness (npm run harness). Each arm runs alone: its MCP server is the only one loaded (--strict-mcp-config), on top of the same built-in Read/Grep/Glob every arm gets. Placeholders: ${NODE} ${PROJECT_ROOT} ${REPO_DIR} ${TSCONFIG} ${RIE_DB}. `setup` names a preparation step the harness knows how to run before any agent starts. A CLI competitor (no MCP server) can instead set builtin_tools (default Read,Grep,Glob), path_prepend, env and system_note - the note plays the role an MCP server's tool descriptions play for its arm. Every such setting is recorded in each results file's meta.tool_launch.",
   "tools": {
     "baseline": {
       "description": "No MCP server - built-in Read/Grep/Glob only."
@@ -9,9 +9,26 @@
       "setup": "rie-index",
       "mcp": {
         "command": "${NODE}",
-        "args": ["${PROJECT_ROOT}/dist/mcp-server/index.js"],
-        "env": { "RIE_DB": "${RIE_DB}", "RIE_TSCONFIG": "${TSCONFIG}" }
+        "args": [
+          "${PROJECT_ROOT}/dist/mcp-server/index.js"
+        ],
+        "env": {
+          "RIE_DB": "${RIE_DB}",
+          "RIE_TSCONFIG": "${TSCONFIG}"
+        }
       }
+    },
+    "bash-madge": {
+      "description": "Built-in Read/Grep/Glob plus Bash, with madge 8.0.0 (the common circular-dependency CLI) on PATH and configured to skip `import type` statements. The fair competitor for cycle tasks: what a developer with a shell would reach for.",
+      "builtin_tools": "Read,Grep,Glob,Bash",
+      "path_prepend": [
+        "${PROJECT_ROOT}/benchmarks/harness/competitor-bin"
+      ],
+      "env": {
+        "madge_detectiveOptions__ts__skipTypeImports": "true",
+        "madge_detectiveOptions__tsx__skipTypeImports": "true"
+      },
+      "system_note": "The `madge` CLI (v8.0.0) is installed and on PATH, configured to skip `import type` statements. For example, to list import cycles: madge --circular --extensions ts,tsx --ts-config tsconfig.rie.json src"
     }
   }
 }

@@ -20,6 +20,7 @@
     "taskgen": "tsx benchmarks/taskgen/cli.ts",
     "harness": "tsx benchmarks/harness/cli.ts",
     "regrade": "tsx benchmarks/harness/regrade.ts",
+    "audit": "tsx benchmarks/harness/audit.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.0.0",
+    "madge": "^8.0.0",
     "tsx": "^4.7.0",
     "vitest": "^4.1.10"
   }
