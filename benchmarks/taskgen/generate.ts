@@ -249,7 +249,8 @@ export function generateTasks(opts: GenerateOptions): GeneratedTaskSet {
         taskId("cycle-trace", i),
         `Starting from ${c.start}, give a chain of runtime imports that leads back to ${c.start}. ` +
           `Only count imports that survive compilation to JavaScript - an import TypeScript erases because ` +
-          `it is only used as a type does not count. List the files in order, starting and ending with ${c.start}.`
+          `it is only used as a type does not count, and neither does a dynamic import() call, which loads its ` +
+          `module later rather than when the importing file loads. List the files in order, starting and ending with ${c.start}.`
       ),
       category: "cycle_trace",
       validator: "runtime_cycle_path",
@@ -435,7 +436,7 @@ export function generateTasks(opts: GenerateOptions): GeneratedTaskSet {
       taskId("type-trap", i),
       `Is there a runtime circular dependency between ${c.a} and ${c.b}? That is, can each file reach ` +
         `the other through imports that survive compilation to JavaScript, ignoring imports TypeScript ` +
-        `erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. ` +
+        `erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. ` +
         `If no, say which direction has no such runtime path: from ${c.a} to ${c.b}, from ${c.b} to ${c.a}, or both.`
     ),
     category: "runtime_type_trap",

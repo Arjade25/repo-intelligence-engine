@@ -130,6 +130,14 @@ export interface ClaudeRunRequest {
   model?: string;
   /** Kill the session after this long. Without it one stalled API call hung a run for 66 min. */
   timeoutMs?: number;
+  /** Built-in tools for this arm (default READ_ONLY_TOOLS). */
+  builtinTools?: string;
+  /** Extra environment for the agent process, e.g. config for a CLI the arm provides. */
+  env?: Record<string, string>;
+  /** Directories put in front of PATH, so an arm's CLI tools resolve by name. */
+  pathPrepend?: string[];
+  /** Appended to the system prompt: what this arm has, the way MCP tool descriptions tell the rie arm. */
+  appendSystemPrompt?: string;
 }
 
 export interface ClaudeRunOutput {
@@ -153,14 +161,31 @@ export function claudeArgs(req: ClaudeRunRequest, sessionId: string): string[] {
     "--permission-mode",
     "bypassPermissions",
     "--tools",
-    READ_ONLY_TOOLS,
+    req.builtinTools ?? READ_ONLY_TOOLS,
     "--setting-sources",
     "project,local",
     "--strict-mcp-config",
   ];
   if (req.model) args.push("--model", req.model);
   if (req.mcpConfigPath) args.push("--mcp-config", req.mcpConfigPath);
+  if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
   return args;
+}
+
+/**
+ * The agent's environment: ours plus the arm's additions. PATH is matched
+ * case-insensitively because Windows calls it Path, and a spread copy of
+ * process.env loses the case-insensitive lookup - adding "PATH" next to an
+ * existing "Path" leaves two entries and which one wins is unspecified.
+ */
+export function agentEnv(req: Pick<ClaudeRunRequest, "env" | "pathPrepend">, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base, ...req.env };
+  if (req.pathPrepend?.length) {
+    const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+    const sep = process.platform === "win32" ? ";" : ":";
+    env[key] = [...req.pathPrepend, env[key]].filter(Boolean).join(sep);
+  }
+  return env;
 }
 
 export function runClaude(claudeBin: string, req: ClaudeRunRequest): ClaudeRunOutput {
@@ -173,6 +198,7 @@ export function runClaude(claudeBin: string, req: ClaudeRunRequest): ClaudeRunOu
     encoding: "utf8",
     shell: false,
     stdio: "pipe",
+    env: agentEnv(req),
     maxBuffer: 64 * 1024 * 1024,
     ...(req.timeoutMs !== undefined && { timeout: req.timeoutMs }),
   });

@@ -13,7 +13,8 @@ import {
 } from "../taskgen/generate.js";
 import { extractAnswerJson, gitRootPrefix, gradeAnswer, toRepoRelative } from "./grade.js";
 import { runBenchmark, summarize, type Runner } from "./bench.js";
-import { parseTranscript, type TranscriptMetrics } from "./claude.js";
+import { agentEnv, claudeArgs, parseTranscript, type TranscriptMetrics } from "./claude.js";
+import { leakReason } from "./audit.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(__dirname, "../../fixtures/taskgen-repo").replace(/\\/g, "/");
@@ -172,6 +173,45 @@ describe("runBenchmark + summarize", () => {
     expect(byTool.bad).toMatchObject({ runs: 3, correct: 1, tokens_per_correct: 900 });
     expect(byTool.flaky).toMatchObject({ runs: 3, errors: 3, correct: 0, accuracy: 0, tokens_per_correct: null });
   });
+
+  it("resumes: carries over earlier successes, re-runs failed launches and missing runs only", () => {
+    const truth = trap.expected.answer ? "yes" : "no";
+    const ran: string[] = [];
+    const runner: Runner = (req) => {
+      ran.push(req.mcpConfigPath!);
+      return { session_id: "new", final_text: json({ answer: truth }), metrics: metrics(50), wall_ms: 1, cost_usd: null, num_turns: 1 };
+    };
+    const earlier = (tool: string, run: number, ok: boolean) => ({
+      task_id: trap.id,
+      category: trap.category,
+      tool,
+      run,
+      ok,
+      ...(ok ? { session_id: "old", metrics: metrics(70) } : { error: "claude exited 3221225794" }),
+      grade: ok ? { parsed: true, correct: true, score: 1 } : { parsed: false, correct: false, score: 0 },
+    });
+    // a: run 0 succeeded earlier. b: run 0 failed to launch. Run 1 never happened for either.
+    const keep = [earlier("a", 0, true), earlier("b", 0, false)];
+    const seen: [string, number, boolean][] = [];
+    const records = runBenchmark({
+      tasks: [trap],
+      tools: [
+        { name: "a", mcpConfigPath: "a.json" },
+        { name: "b", mcpConfigPath: "b.json" },
+      ],
+      runs: 2,
+      runner,
+      repoRoot: FIXTURE,
+      keep: keep.filter((r) => r.ok),
+      onRun: (r, _done, _total, wasKept) => seen.push([r.tool, r.run, wasKept]),
+    });
+
+    expect(ran.sort()).toEqual(["a.json", "b.json", "b.json"]);
+    expect(records).toHaveLength(4);
+    expect(records.find((r) => r.tool === "a" && r.run === 0)).toBe(keep[0]);
+    expect(records.filter((r) => r.session_id === "new")).toHaveLength(3);
+    expect(seen.filter(([, , wasKept]) => wasKept)).toEqual([["a", 0, true]]);
+  });
 });
 
 describe("parseTranscript", () => {
@@ -203,5 +243,61 @@ describe("parseTranscript", () => {
     expect(m.tool_calls_by_name).toEqual({ Grep: 2, mcp__rie__find_circular_dependencies: 1 });
     expect(m.total_tokens).toBe(100 + 1 + 10 + 50 + 1 + 10);
     expect(m.models).toEqual(["m1"]);
+  });
+});
+
+describe("per-arm launch settings (CLI competitors like bash-madge)", () => {
+  it("passes the arm's built-in tools and system note to claude, defaulting to Read/Grep/Glob", () => {
+    const plain = claudeArgs({ prompt: "p", cwd: "." }, "s");
+    expect(plain[plain.indexOf("--tools") + 1]).toBe("Read,Grep,Glob");
+    expect(plain).not.toContain("--append-system-prompt");
+
+    const arm = claudeArgs({ prompt: "p", cwd: ".", builtinTools: "Read,Grep,Glob,Bash", appendSystemPrompt: "madge is on PATH" }, "s");
+    expect(arm[arm.indexOf("--tools") + 1]).toBe("Read,Grep,Glob,Bash");
+    expect(arm[arm.indexOf("--append-system-prompt") + 1]).toBe("madge is on PATH");
+  });
+
+  it("prepends to the existing PATH entry whatever its casing, and adds the arm's env", () => {
+    const sep = process.platform === "win32" ? ";" : ":";
+    const env = agentEnv({ pathPrepend: ["/bin/madge"], env: { madge_x: "true" } }, { Path: "/usr/bin", HOME: "/h" });
+    expect(env).toEqual({ Path: `/bin/madge${sep}/usr/bin`, HOME: "/h", madge_x: "true" });
+    expect(agentEnv({}, { Path: "/usr/bin" })).toEqual({ Path: "/usr/bin" });
+  });
+});
+
+describe("leakReason (answer-leakage audit)", () => {
+  const project = "D:/RIE/repo-intelligence-engine";
+  const checkout = "D:/RIE/repo-intelligence-engine/benchmarks/candidates/directus";
+  const why = (name: string, input: unknown) => leakReason({ name, input }, project, checkout, 1);
+
+  it("allows anything inside the target checkout, in every path spelling", () => {
+    expect(why("Read", { file_path: String.raw`D:\RIE\repo-intelligence-engine\benchmarks\candidates\directus\api\src\app.ts` })).toBeNull();
+    expect(why("Bash", { command: "cd /d/RIE/repo-intelligence-engine/benchmarks/candidates/directus && ls" })).toBeNull();
+    expect(why("Bash", { command: "madge --circular --ts-config tsconfig.rie.json src" })).toBeNull();
+    expect(why("Bash", { command: "cat ../package.json" })).toBeNull(); // one level up = the monorepo root, still the target
+  });
+
+  it("flags a path into the project outside the target checkout", () => {
+    expect(why("Read", { file_path: "D:/RIE/repo-intelligence-engine/benchmarks/generated/directus.json" })).toMatch(/outside the target checkout/);
+    expect(why("Bash", { command: "ls /d/RIE/repo-intelligence-engine/benchmarks" })).toMatch(/outside the target checkout/);
+    expect(why("Grep", { pattern: "x", path: String.raw`D:\RIE\repo-intelligence-engine\benchmarks\candidates\directus-other` })).toMatch(/outside/);
+  });
+
+  it("does not flag import specifiers the agent greps for (the first bash-madge run's 7 false hits)", () => {
+    expect(why("Bash", { command: `cd api/src && grep -n "from '../../services/" ai/mcp/server.ts` })).toBeNull();
+    expect(why("Bash", { command: `f permissions/utils/fetch-dynamic-variable-data.ts '../../services/policies.js'` })).toBeNull();
+  });
+
+  it("flags any reference to the answer files, quoted or not", () => {
+    expect(why("Bash", { command: `cat '../../../generated/directus.json'` })).toMatch(/benchmark answers/);
+    expect(why("Read", { file_path: "../../../tasks-directus.json" })).toMatch(/benchmark answers/);
+    expect(why("Bash", { command: "ls ../../../results/harness" })).toMatch(/benchmark answers/);
+  });
+
+  it("flags relative paths that climb out of the checkout", () => {
+    expect(why("Bash", { command: "ls ../../" })).toMatch(/climbing out/);
+    expect(why("Bash", { command: "cd ../.. && ls" })).toMatch(/climbing out/);
+    expect(why("Read", { file_path: String.raw`..\..\generated\directus.json` })).toMatch(/benchmark answers/);
+    expect(why("Read", { file_path: String.raw`..\..\src\engine\index.ts` })).toMatch(/climbing out/);
   });
 });

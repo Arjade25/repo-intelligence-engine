@@ -11,6 +11,9 @@
  *          only for imports shown not to affect the tasks - the count is recorded in the results)
  *          --out=<path>  (default benchmarks/results/harness/<label>-<timestamp>.json)
  *          --session-timeout-min=N  (kill a session after N minutes and record it as an error; default 30)
+ *          --resume=<results.json | .partial.jsonl>  (finish an interrupted run: keep its successful
+ *          sessions, run only the missing or failed ones, and write the combined results back to that
+ *          run's results file; meta.resumed records what was kept and what was re-run)
  *
  * Each finished run is also appended to <out>.partial.jsonl as it completes, so a
  * run stopped midway keeps the sessions it already paid for. The file is deleted
@@ -31,7 +34,7 @@ import { openDb } from "../../src/storage/db.js";
 import { reindex } from "../../src/engine/index.js";
 import { describeUnresolved } from "../../src/indexer/resolution.js";
 import { claudeArgs, resolveClaudeBin, runClaude } from "./claude.js";
-import { runBenchmark, summarize, type CellSummary, type ToolArm } from "./bench.js";
+import { runBenchmark, summarize, type CellSummary, type RunRecord, type ToolArm } from "./bench.js";
 import { buildPrompt } from "./grade.js";
 
 const BENCH_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -78,6 +81,11 @@ interface ToolSpec {
   description: string;
   setup?: "rie-index";
   mcp?: { command: string; args?: string[]; env?: Record<string, string> };
+  /** For a CLI competitor: built-in tools (default Read,Grep,Glob), PATH additions, env, and a system-prompt note. */
+  builtin_tools?: string;
+  path_prepend?: string[];
+  env?: Record<string, string>;
+  system_note?: string;
 }
 const registry = (JSON.parse(readFileSync(join(BENCH_DIR, "tools.json"), "utf8")) as { tools: Record<string, ToolSpec> }).tools;
 const toolNames = list("tools") ?? Object.keys(registry);
@@ -98,7 +106,13 @@ const expand = (s: string) => s.replace(/\$\{(\w+)\}/g, (_, k: string) => placeh
 const tmp = mkdtempSync(join(tmpdir(), "rie-harness-"));
 const tools: ToolArm[] = toolNames.map((name) => {
   const spec = registry[name];
-  if (!spec.mcp) return { name };
+  const launch: Omit<ToolArm, "name" | "mcpConfigPath"> = {
+    ...(spec.builtin_tools && { builtinTools: spec.builtin_tools }),
+    ...(spec.path_prepend && { pathPrepend: spec.path_prepend.map(expand) }),
+    ...(spec.env && { env: Object.fromEntries(Object.entries(spec.env).map(([k, v]) => [k, expand(v)])) }),
+    ...(spec.system_note && { appendSystemPrompt: expand(spec.system_note) }),
+  };
+  if (!spec.mcp) return { name, ...launch };
   const cfg = {
     mcpServers: {
       [name]: {
@@ -110,7 +124,7 @@ const tools: ToolArm[] = toolNames.map((name) => {
   };
   const path = join(tmp, `${name}.mcp.json`);
   writeFileSync(path, JSON.stringify(cfg, null, 2));
-  return { name, mcpConfigPath: path };
+  return { name, mcpConfigPath: path, ...launch };
 });
 
 console.log(`Task set: ${tasksPath} (${taskSet.repo})`);
@@ -122,8 +136,9 @@ if (dryRun) {
   const sample = tasks[0];
   console.log(`\n--- prompt for ${sample.id} (identical on every arm) ---\n${buildPrompt(sample)}\n`);
   for (const tool of tools) {
-    const argv = claudeArgs({ prompt: "<prompt>", cwd: repoRoot, mcpConfigPath: tool.mcpConfigPath, model }, "<session-id>");
+    const argv = claudeArgs({ prompt: "<prompt>", cwd: repoRoot, model, ...tool }, "<session-id>");
     console.log(`[${tool.name}] claude ${argv.join(" ")}`);
+    if (tool.pathPrepend || tool.env) console.log(`  PATH += ${tool.pathPrepend?.join(";") ?? ""}  env: ${JSON.stringify(tool.env ?? {})}`);
     if (tool.mcpConfigPath) console.log(readFileSync(tool.mcpConfigPath, "utf8"));
   }
   process.exit(0);
@@ -156,23 +171,50 @@ if (setups.has("rie-index")) {
   }
 }
 
-const startedAt = new Date();
+// --resume: the sessions an interrupted attempt already paid for. A run whose agent
+// failed to launch (ok: false) is re-run, never kept: losing the harness's console
+// once made every later `claude` launch die at startup (0xC0000142), which recorded
+// 61 instant "errors" that measured nothing.
+const resumeFrom = flag("resume");
+let previous: RunRecord[] = [];
+let previousMeta: Record<string, unknown> | undefined;
+if (resumeFrom) {
+  const text = readFileSync(resumeFrom, "utf8");
+  if (resumeFrom.endsWith(".jsonl")) {
+    previous = text.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as RunRecord);
+  } else {
+    const prior = JSON.parse(text) as { meta: Record<string, unknown>; runs: RunRecord[] };
+    previous = prior.runs;
+    previousMeta = prior.meta;
+  }
+}
+const kept = previous.filter((r) => r.ok);
+
+const startedAt = previousMeta?.started_at ? new Date(previousMeta.started_at as string) : new Date();
 const out =
-  flag("out") ?? join(BENCH_DIR, "results", "harness", `${label}-${startedAt.toISOString().replace(/[:.]/g, "-")}.json`);
+  flag("out") ??
+  (resumeFrom ? resumeFrom.replace(/\.partial\.jsonl$/, "") : undefined) ??
+  join(BENCH_DIR, "results", "harness", `${label}-${startedAt.toISOString().replace(/[:.]/g, "-")}.json`);
 const partialOut = `${out}.partial.jsonl`;
 mkdirSync(dirname(out), { recursive: true });
 const sessionTimeoutMs = Number(flag("session-timeout-min") ?? 30) * 60_000;
 console.log(`Session timeout: ${sessionTimeoutMs / 60_000} min. Progress: ${partialOut}`);
+if (resumeFrom) {
+  console.log(`Resuming ${resumeFrom}: keeping ${kept.length} successful session(s), discarding ${previous.length - kept.length} failed one(s).`);
+}
 
+const resumedAt = new Date();
 const records = runBenchmark({
   tasks,
   tools,
   runs,
   model,
   repoRoot,
+  keep: kept,
   runner: (req) => runClaude(claudeBin, { ...req, timeoutMs: sessionTimeoutMs }),
-  onRun: (r, done, total) => {
+  onRun: (r, done, total, wasKept) => {
     appendFileSync(partialOut, JSON.stringify(r) + "\n");
+    if (wasKept) return; // already reported by the earlier attempt
     const m = r.metrics;
     const verdict = !r.ok ? `ERROR ${r.error?.split("\n")[0]}` : r.grade.correct ? "correct" : `wrong (${r.grade.reason ?? "incorrect"})`;
     console.log(
@@ -198,6 +240,8 @@ writeFileSync(
         tsconfig_flags: taskSet.tsconfig_flags,
         unresolved_internal_imports: unresolvedCount,
         tools: Object.fromEntries(toolNames.map((n) => [n, registry[n].description])),
+        // Everything that differed between arms besides the MCP server, exactly as launched.
+        tool_launch: Object.fromEntries(tools.map(({ name, mcpConfigPath: _, ...launch }) => [name, launch])),
         runs_per_tool: runs,
         model_requested: model ?? null,
         models_observed: observedModels,
@@ -205,6 +249,16 @@ writeFileSync(
         harness_commit: gitHead,
         started_at: startedAt.toISOString(),
         finished_at: new Date().toISOString(),
+        ...(resumeFrom && {
+          resumed: {
+            from: resumeFrom.replace(/\\/g, "/"),
+            at: resumedAt.toISOString(),
+            kept: records.filter((r) => kept.includes(r)).length,
+            rerun: records.filter((r) => !kept.includes(r)).length,
+            discarded_failed_launches: previous.length - kept.length,
+            previous_claude_version: previousMeta?.claude_version ?? null,
+          },
+        }),
       },
       summary,
       runs: records,

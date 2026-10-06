@@ -7,13 +7,20 @@ import { mean, median, quantile } from "./stats.js";
  * Orchestration and scoring for the generated-task harness, independent of how an
  * agent is actually launched: `runner` is Claude Code in real use and a stub in
  * tests. Every arm gets the identical prompt, model, repo checkout and built-in
- * toolset; the only per-arm difference is which MCP config (if any) is passed.
+ * toolset by default. An arm may differ in its MCP config, and - for a competitor
+ * that is a CLI rather than an MCP server - its built-in tools, PATH, environment
+ * and a system-prompt note saying what it has (see benchmarks/tools.json).
  */
 
 export interface ToolArm {
   name: string;
   /** Omitted for the baseline arm. */
   mcpConfigPath?: string;
+  /** Per-arm launch settings - see ClaudeRunRequest. Omitted = Read/Grep/Glob, no extras. */
+  builtinTools?: string;
+  env?: Record<string, string>;
+  pathPrepend?: string[];
+  appendSystemPrompt?: string;
 }
 
 export type Runner = (req: ClaudeRunRequest) => ClaudeRunOutput;
@@ -42,7 +49,15 @@ export interface BenchmarkOptions {
   runner: Runner;
   repoRoot: string;
   model?: string;
-  onRun?: (record: RunRecord, done: number, total: number) => void;
+  /** `kept` is true for a record carried over from `keep`, not run now. */
+  onRun?: (record: RunRecord, done: number, total: number, kept: boolean) => void;
+  /**
+   * Successful records from an earlier, interrupted attempt (--resume). A
+   * (task, tool, run) with an ok record here is carried over instead of re-run;
+   * everything else - never run, or failed to launch - runs now, in the usual
+   * rotated order.
+   */
+  keep?: RunRecord[];
 }
 
 export function runBenchmark(opts: BenchmarkOptions): RunRecord[] {
@@ -57,12 +72,22 @@ export function runBenchmark(opts: BenchmarkOptions): RunRecord[] {
       const order = [...opts.tools.slice(shift), ...opts.tools.slice(0, shift)];
       for (const tool of order) {
         const base = { task_id: task.id, category: task.category, tool: tool.name, run };
+        const kept = opts.keep?.find((r) => r.ok && r.task_id === task.id && r.tool === tool.name && r.run === run);
+        if (kept) {
+          records.push(kept);
+          opts.onRun?.(kept, records.length, total, true);
+          continue;
+        }
         let record: RunRecord;
         try {
           const out = opts.runner({
             prompt: buildPrompt(task),
             cwd: opts.repoRoot,
             mcpConfigPath: tool.mcpConfigPath,
+            builtinTools: tool.builtinTools,
+            env: tool.env,
+            pathPrepend: tool.pathPrepend,
+            appendSystemPrompt: tool.appendSystemPrompt,
             model: opts.model,
           });
           record = {
@@ -85,7 +110,7 @@ export function runBenchmark(opts: BenchmarkOptions): RunRecord[] {
           };
         }
         records.push(record);
-        opts.onRun?.(record, records.length, total);
+        opts.onRun?.(record, records.length, total, false);
       }
     }
   }

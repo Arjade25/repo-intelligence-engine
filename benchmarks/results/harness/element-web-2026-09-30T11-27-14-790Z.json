@@ -25,7 +25,13 @@
     "claude_version": "2.1.284 (Claude Code)",
     "harness_commit": "13cf65d3d93160251e3500f43a000c4b2496c6c5",
     "started_at": "2026-09-30T11:27:14.790Z",
-    "finished_at": "2026-09-30T13:15:19.633Z"
+    "finished_at": "2026-09-30T13:15:19.633Z",
+    "audit": {
+      "at": "2026-10-01T07:47:25.187Z",
+      "checkout": "D:/RIE/repo-intelligence-engine/benchmarks/candidates/element-web",
+      "sessions_scanned": 100,
+      "flagged": []
+    }
   },
   "summary": {
     "by_task": [

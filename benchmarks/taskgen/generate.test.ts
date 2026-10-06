@@ -178,6 +178,22 @@ describe("validators", () => {
     expect(validateCyclePath(cycle, ok.slice(1).concat(ok[1])).valid).toBe(false);
   });
 
+  it("says when a step leaves the cycle group, instead of calling a real import missing", () => {
+    const ok = cycle.expected.example_cycle;
+    const outside = "src/lib/widget.ts"; // a real file, not in the cycle group
+    expect(cycle.expected.scc_members).not.toContain(outside);
+    const verdict = validateCyclePath(cycle, [ok[0], outside, ok[0]]);
+    expect(verdict.valid).toBe(false);
+    expect(verdict.reason).toMatch(/src\/lib\/widget\.ts is not in .* runtime cycle group/);
+    // Both ends inside the group but no such import: still reported as a missing import.
+    expect(validateCyclePath(cycle, [ok[0], ok[2], ...ok.slice(3)]).reason).toMatch(/^no runtime import/);
+  });
+
+  it("tells the agent dynamic import() calls don't count, in cycle and trap prompts", () => {
+    expect(cycle.prompt).toMatch(/dynamic import\(\) call/);
+    expect(traps.every((t) => /dynamic import\(\) calls/.test(t.prompt))).toBe(true);
+  });
+
   it("normalizes ./ prefixes and backslashes in answers", () => {
     const messy = cycle.expected.example_cycle.map((f) => `./${f.replace(/\//g, "\\")}`);
     expect(validateCyclePath(cycle, messy).valid).toBe(true);

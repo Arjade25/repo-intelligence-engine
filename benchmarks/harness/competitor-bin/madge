@@ -1,0 +1,4 @@
+#!/bin/sh
+# Exposes ONLY madge to the bash-madge benchmark arm (see benchmarks/tools.json),
+# rather than this project's whole node_modules/.bin (tsx, vitest, tsc...).
+exec node "$(dirname "$0")/../../../node_modules/madge/bin/cli.js" "$@"
