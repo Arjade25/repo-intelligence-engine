@@ -15,7 +15,7 @@ The engine parses a TypeScript repo with the **TypeScript Compiler API** and sto
 | `find_module(name)` | Which file(s) define this symbol? |
 | `find_related_files(file)` | What does this file import, and what imports it? |
 | `find_symbol_references(symbol)` | Everywhere this symbol is used |
-| `dependency_path(a, b)` | Is there an import path from A to B, and what is it? Each end can be a symbol name or a file path |
+| `dependency_path(a, b)` | Is there an import path from A to B, and what is it? Each end can be a symbol name or a file path. Each hop cites its import line and says whether it is type-only; pass `runtime_only` to follow only imports that survive compilation |
 | `find_circular_dependencies()` | Which files form runtime import cycles? Compact: group sizes + one example each (pass `include_files` for full member lists, `include_type_only` to count erased imports too) |
 | `find_cycle_through_file(file)` | Is this file in a runtime cycle, and what is the shortest loop through it? Exhaustive when the answer is no |
 | `reindex()` | Rebuild the whole index, and report any internal imports that failed to resolve |
@@ -376,11 +376,11 @@ The fix for nest was to point the aliases at files (`"@nestjs/common": ["./packa
 
 ## Test suite
 
-`npm test` runs **231 tests in 12 files, all passing** (vitest, 2026-10-06). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. They don't need a cloned benchmark target.
+`npm test` runs **234 tests in 12 files, all passing** (vitest, 2026-10-09). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. They don't need a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
-| `src/engine/index.test.ts` | All six queries, explicit not-found results, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path `dependency_path`, `find_cycle_through_file` and its per-hop evidence | 52 |
+| `src/engine/index.test.ts` | All six queries, explicit not-found results, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path and runtime-only `dependency_path`, `find_cycle_through_file` and per-hop evidence for both | 55 |
 | `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata | 52 |
 | `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums, decorator metadata, unresolved internal imports | 35 |
 | `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed, trap direction grading | 25 |

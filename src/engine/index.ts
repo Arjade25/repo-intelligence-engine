@@ -94,6 +94,18 @@ export interface DependencyPath {
    * exhaustive, and how large it was.
    */
   files_searched?: number;
+  /** "runtime" when only imports that survive compilation were followed (runtimeOnly). */
+  path_type: "runtime" | "runtime_and_type_only";
+  /**
+   * The import behind each step: hops[i] is chain[i] -> chain[i+1]. Present when the
+   * chain has 2+ files. In the default mode each hop says whether it is type_only.
+   */
+  hops?: CycleHop[];
+  /**
+   * runtimeOnly queries only, when no runtime path exists: whether one appears once
+   * erased imports count. The "no" half of a runtime-vs-type trap.
+   */
+  type_only_path_exists?: boolean;
   note?: string;          // why there's no chain: an end matched nothing, or the search came up empty
 }
 
@@ -305,8 +317,21 @@ function looksLikeFilePath(arg: string): boolean {
  * Each end is a symbol name OR a file path. Symbol-only ends made file-to-file
  * questions unanswerable - a barrel like `index.ts` declares nothing to name - so
  * an agent asked "does file A import file B?" had to fall back to grep.
+ *
+ * runtimeOnly follows only imports that survive compilation. Without it, trap tasks
+ * ("can each file reach the other at runtime?") cost ~1.4x the bash+madge arm: the
+ * agent got a chain that might run through erased imports and read files to check
+ * each hop.
  */
-export function dependencyPath(db: Database.Database, a: string, b: string): DependencyPath {
+export function dependencyPath(
+  db: Database.Database,
+  a: string,
+  b: string,
+  options: { runtimeOnly?: boolean; root?: string } = {}
+): DependencyPath {
+  const rel = relativizer(options.root);
+  const runtimeOnly = options.runtimeOnly ?? false;
+  const path_type = runtimeOnly ? "runtime" : "runtime_and_type_only";
   const notes: string[] = [];
   const endpoint = (arg: string): string[] => {
     if (!looksLikeFilePath(arg)) {
@@ -323,7 +348,7 @@ export function dependencyPath(db: Database.Database, a: string, b: string): Dep
     if (resolved) return [resolved];
     notes.push(
       candidates.length > 1
-        ? `"${arg}" matches ${candidates.length} indexed files - pass a longer path: ${candidates.join(", ")}`
+        ? `"${arg}" matches ${candidates.length} indexed files - pass a longer path: ${candidates.map(rel).join(", ")}`
         : `"${arg}" is not an indexed file.`
     );
     return [];
@@ -337,54 +362,74 @@ export function dependencyPath(db: Database.Database, a: string, b: string): Dep
   // file is the alphabetically first candidate - deterministic, unlike the
   // unordered LIMIT 1 this replaced, which picked by insertion order.
   const ambiguity: DependencyPath["ambiguity"] = {};
-  if (candidatesA.length > 1) ambiguity.symbol_a = { chosen: fileA, candidates: candidatesA };
-  if (candidatesB.length > 1) ambiguity.symbol_b = { chosen: fileB, candidates: candidatesB };
+  if (candidatesA.length > 1) ambiguity.symbol_a = { chosen: rel(fileA), candidates: candidatesA.map(rel) };
+  if (candidatesB.length > 1) ambiguity.symbol_b = { chosen: rel(fileB), candidates: candidatesB.map(rel) };
   const withAmbiguity = (result: DependencyPath): DependencyPath => ({
     ...result,
     ...((ambiguity.symbol_a || ambiguity.symbol_b) && { ambiguity }),
     ...(notes.length > 0 && { note: notes.join(" ") }),
   });
 
-  if (!fileA || !fileB) return withAmbiguity({ found: false, chain: [] });
-  if (fileA === fileB) return withAmbiguity({ found: true, chain: [fileA] });
+  if (!fileA || !fileB) return withAmbiguity({ found: false, chain: [], path_type });
+  if (fileA === fileB) return withAmbiguity({ found: true, chain: [rel(fileA)], path_type });
 
-  const neighborsOf = db.prepare(`SELECT DISTINCT to_file FROM edges WHERE from_file = ?`);
+  const found = shortestPath(db, fileA, fileB, runtimeOnly);
+  if (found.chain) {
+    return withAmbiguity({
+      found: true,
+      chain: found.chain.map(rel),
+      path_type,
+      hops: cycleHops(db, found.chain, !runtimeOnly, rel),
+    });
+  }
 
+  const result: DependencyPath = { found: false, chain: [], path_type, files_searched: found.searched };
+  if (runtimeOnly) result.type_only_path_exists = shortestPath(db, fileA, fileB, false).chain !== null;
+  result.note =
+    `No ${runtimeOnly ? "runtime " : ""}import path from ${rel(fileA)} to ${rel(fileB)}. The search was exhaustive: it followed every ` +
+    `static import and re-export (${runtimeOnly ? "type-only excluded - they are erased at compile time" : "type-only included"}) ` +
+    `from ${rel(fileA)} and reached ${found.searched} file(s), none of which is ${rel(fileB)}. Reading files will not find a path ` +
+    `this missed - only a dynamic import() or a require() inside a function would, and neither is an import edge.` +
+    (result.type_only_path_exists ? " A path does exist once type-only imports are counted, but it cannot run." : "");
+  return withAmbiguity(result);
+}
+
+/** BFS a shortest directed file chain from `from` to `to`; searched = files reached when there is none. */
+function shortestPath(
+  db: Database.Database,
+  from: string,
+  to: string,
+  runtimeOnly: boolean
+): { chain: string[] | null; searched: number } {
+  const neighborsOf = db.prepare(
+    runtimeOnly
+      ? `SELECT DISTINCT to_file FROM edges WHERE from_file = ? AND is_type_only = 0`
+      : `SELECT DISTINCT to_file FROM edges WHERE from_file = ?`
+  );
   const parent = new Map<string, string>();
-  const visited = new Set<string>([fileA]);
-  const queue: string[] = [fileA];
+  const visited = new Set<string>([from]);
+  const queue: string[] = [from];
 
   while (queue.length > 0) {
     const current = queue.shift()!;
-    const neighbors = neighborsOf.all(current) as { to_file: string }[];
-    for (const { to_file } of neighbors) {
+    for (const { to_file } of neighborsOf.all(current) as { to_file: string }[]) {
       if (visited.has(to_file)) continue;
       visited.add(to_file);
       parent.set(to_file, current);
 
-      if (to_file === fileB) {
-        const chain = [fileB];
-        let node = fileB;
-        while (node !== fileA) {
+      if (to_file === to) {
+        const chain = [to];
+        let node = to;
+        while (node !== from) {
           node = parent.get(node)!;
           chain.unshift(node);
         }
-        return withAmbiguity({ found: true, chain });
+        return { chain, searched: visited.size };
       }
       queue.push(to_file);
     }
   }
-
-  return withAmbiguity({
-    found: false,
-    chain: [],
-    files_searched: visited.size,
-    note:
-      `No import path from ${fileA} to ${fileB}. The search was exhaustive: it followed every ` +
-      `static import and re-export (type-only included) from ${fileA} and reached ${visited.size} ` +
-      `file(s), none of which is ${fileB}. Reading files will not find a path this missed - only a ` +
-      `dynamic import() or a require() inside a function would, and neither is an import edge.`,
-  });
+  return { chain: null, searched: visited.size };
 }
 
 export interface CircularDependency {
@@ -667,7 +712,7 @@ export function findCycleThroughFile(
 }
 
 /**
- * The evidence for each step of a loop. Benchmark agents given only the file chain
+ * The evidence for each step of a loop or path. Benchmark agents given only the file chain
  * grepped every hop (all 50 directus runs did) to confirm it was a real, non-type
  * import; this hands them the statement and the checker's runtime verdict instead.
  * When a pair is joined by several statements, the first runtime one is cited.

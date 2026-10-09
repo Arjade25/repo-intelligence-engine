@@ -84,9 +84,17 @@ describe("mcp-server (thin adapter over engine/, plan step 5)", () => {
 
   it("dependency_path: MCP result matches the direct engine call", async () => {
     const viaMcp = await callToolJson(client, "dependency_path", { symbol_a: "run", symbol_b: "add" });
-    const direct = dependencyPath(db, "run", "add");
+    const direct = dependencyPath(db, "run", "add", { root: dirname(FIXTURE_TSCONFIG) });
     expect(viaMcp).toEqual(direct);
     expect(direct.found).toBe(true);
+
+    const runtimeViaMcp = await callToolJson(client, "dependency_path", {
+      symbol_a: "run",
+      symbol_b: "add",
+      runtime_only: true,
+    });
+    expect(runtimeViaMcp).toEqual(dependencyPath(db, "run", "add", { runtimeOnly: true, root: dirname(FIXTURE_TSCONFIG) }));
+    expect(runtimeViaMcp).toMatchObject({ path_type: "runtime" });
   });
 
   it("reindex: MCP call rebuilds the index exactly like calling engine.reindex directly", async () => {
