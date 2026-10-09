@@ -268,6 +268,12 @@ writeFileSync(
   ) + "\n"
 );
 rmSync(partialOut, { force: true });
+// The exact tasks this run used, prompts included, next to its results.
+// benchmarks/generated/ is regenerated as taskgen changes (the cycle and trap
+// prompts were reworded after the first long-loop runs), so a results file must
+// not depend on it to be reproducible.
+const tasksOut = out.replace(/\.json$/, ".tasks.json");
+writeFileSync(tasksOut, JSON.stringify({ ...taskSet, tasks }, null, 2) + "\n");
 
 const fmt = (n: number | null) => (n === null ? "-" : Math.round(n).toLocaleString("en-US"));
 const table = (title: string, cells: CellSummary[]) => {

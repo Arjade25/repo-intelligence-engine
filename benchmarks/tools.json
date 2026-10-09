@@ -28,7 +28,7 @@
         "madge_detectiveOptions__ts__skipTypeImports": "true",
         "madge_detectiveOptions__tsx__skipTypeImports": "true"
       },
-      "system_note": "The `madge` CLI (v8.0.0) is installed and on PATH, configured to skip `import type` statements. For example, to list import cycles: madge --circular --extensions ts,tsx --ts-config tsconfig.rie.json src"
+      "system_note": "The `madge` CLI (v8.0.0) is installed and on PATH, configured to skip `import type` statements. For example, to list import cycles: madge --circular --extensions ts,tsx --ts-config tsconfig.rie.json src. To include `import type` statements, unset that configuration for the call: env -u madge_detectiveOptions__ts__skipTypeImports -u madge_detectiveOptions__tsx__skipTypeImports madge ..."
     }
   }
 }
