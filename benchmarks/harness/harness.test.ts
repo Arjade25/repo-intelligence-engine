@@ -15,6 +15,7 @@ import { extractAnswerJson, gitRootPrefix, gradeAnswer, toRepoRelative } from ".
 import { runBenchmark, summarize, type Runner } from "./bench.js";
 import { agentEnv, claudeArgs, parseTranscript, type TranscriptMetrics } from "./claude.js";
 import { leakReason } from "./audit.js";
+import { estimateCost, loadReusedArm } from "./budget.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(__dirname, "../../fixtures/taskgen-repo").replace(/\\/g, "/");
@@ -212,6 +213,98 @@ describe("runBenchmark + summarize", () => {
     expect(records.filter((r) => r.session_id === "new")).toHaveLength(3);
     expect(seen.filter(([, , wasKept]) => wasKept)).toEqual([["a", 0, true]]);
   });
+
+  it("stops launching once shouldStop says so, and counts capped runs apart from errors", () => {
+    const truth = trap.expected.answer ? "yes" : "no";
+    let launched = 0;
+    const runner: Runner = () => {
+      launched++;
+      // The second session hits the turn cap: no answer, but a real, finished session.
+      return launched === 2
+        ? { session_id: "c", final_text: "", metrics: metrics(900), wall_ms: 1, cost_usd: 0.5, num_turns: 151, capped: true }
+        : { session_id: "s", final_text: json({ answer: truth }), metrics: metrics(50), wall_ms: 1, cost_usd: 0.5, num_turns: 3 };
+    };
+    let spent = 0;
+    const records = runBenchmark({
+      tasks: [trap],
+      tools: [{ name: "a", mcpConfigPath: "a.json" }],
+      runs: 5,
+      runner,
+      repoRoot: FIXTURE,
+      onRun: (r) => (spent += r.cost_usd ?? 0),
+      shouldStop: () => spent >= 1.5,
+    });
+
+    expect(launched).toBe(3); // $0.50 each: stopped before the 4th, with $1.50 spent
+    expect(records).toHaveLength(3);
+    expect(records[1]).toMatchObject({ ok: true, capped: true, grade: { correct: false } });
+    expect(summarize(records).overall[0]).toMatchObject({ runs: 3, correct: 2, errors: 0, capped: 1 });
+  });
+});
+
+describe("spending controls", () => {
+  const past = (tool: string, category: string, cost_usd: number, repo = "fixture") => ({ repo, tool, category, cost_usd });
+
+  it("estimates from the closest past match: same repo and category, then any repo, then any task", () => {
+    const history = [
+      past("rie", "runtime_type_trap", 0.2),
+      past("rie", "runtime_type_trap", 0.4),
+      past("rie", "cycle_trace", 9, "other"), // a different category, ignored while a closer match exists
+      past("madge", "runtime_type_trap", 1, "other"),
+      past("grep", "cycle_trace", 2, "other"),
+    ];
+    const est = estimateCost(history, "fixture", [trap], ["rie", "madge", "grep", "new"], 5);
+    const byTool = Object.fromEntries(est.arms.map((a) => [a.tool, a]));
+    expect(byTool.rie.usd).toBeCloseTo(1.5); // mean 0.30 x 5 runs
+    expect(byTool.rie.basis).toBe("fixture runtime_type_trap (n=2)");
+    expect(byTool.madge).toMatchObject({ usd: 5, basis: "any repo, runtime_type_trap (n=1)" });
+    expect(byTool.grep).toMatchObject({ usd: 10, basis: "any task (n=1)" });
+    expect(byTool.new).toMatchObject({ usd: null, basis: "none", sessions: 5 });
+    expect(est.total_usd).toBeNull(); // one arm has no history, so no total is claimed
+
+    expect(estimateCost(history, "fixture", [trap], ["rie", "madge"], 5).total_usd).toBeCloseTo(6.5);
+  });
+
+  describe("loadReusedArm", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rie-reuse-"));
+    const record = (run: number, ok = true) => ({
+      task_id: trap.id,
+      category: trap.category,
+      tool: "baseline",
+      run,
+      ok,
+      cost_usd: 0.3,
+      grade: { parsed: true, correct: true, score: 1 },
+    });
+    const write = (name: string, runs: unknown[], tasks?: Task[]) => {
+      const path = join(dir, `${name}.json`);
+      writeFileSync(path, JSON.stringify({ meta: { claude_version: "2.1.289" }, runs }));
+      if (tasks) writeFileSync(join(dir, `${name}.tasks.json`), JSON.stringify({ tasks }));
+      return path;
+    };
+
+    it("takes the arm's sessions for the same tasks and run numbers, marked as reused", () => {
+      const path = write("full", [record(0), record(1), record(2)], [trap]);
+      const arm = loadReusedArm({ tool: "baseline", path }, [trap], 2);
+      expect(arm.records.map((r) => r.run)).toEqual([0, 1]);
+      expect(arm.records[0].reused_from).toBe(path.replace(/\\/g, "/"));
+      expect(arm.prompts_verified).toBe(true);
+      expect(arm.source_meta.claude_version).toBe("2.1.289");
+    });
+
+    it("refuses when a session is missing or failed, or a prompt changed", () => {
+      const gaps = write("gaps", [record(0), record(1, false)], [trap]);
+      expect(() => loadReusedArm({ tool: "baseline", path: gaps }, [trap], 2)).toThrow(/run 2: no successful baseline session/);
+
+      const reworded = write("reworded", [record(0)], [{ ...trap, prompt: "an older wording" } as Task]);
+      expect(() => loadReusedArm({ tool: "baseline", path: reworded }, [trap], 1)).toThrow(/prompt changed/);
+    });
+
+    it("uses a source with no saved task set, but says its prompts weren't checked", () => {
+      const old = write("old", [record(0)]);
+      expect(loadReusedArm({ tool: "baseline", path: old }, [trap], 1).prompts_verified).toBe(false);
+    });
+  });
 });
 
 describe("parseTranscript", () => {
@@ -248,6 +341,8 @@ describe("parseTranscript", () => {
 
 describe("per-arm launch settings (CLI competitors like bash-madge)", () => {
   it("passes the arm's built-in tools and system note to claude, defaulting to Read/Grep/Glob", () => {
+    expect(claudeArgs({ prompt: "p", cwd: ".", maxTurns: 150 }, "s").join(" ")).toContain("--max-turns 150");
+    expect(claudeArgs({ prompt: "p", cwd: ".", maxTurns: 0 }, "s")).not.toContain("--max-turns");
     const plain = claudeArgs({ prompt: "p", cwd: "." }, "s");
     expect(plain[plain.indexOf("--tools") + 1]).toBe("Read,Grep,Glob");
     expect(plain).not.toContain("--append-system-prompt");

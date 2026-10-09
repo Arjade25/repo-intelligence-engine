@@ -376,7 +376,7 @@ The fix for nest was to point the aliases at files (`"@nestjs/common": ["./packa
 
 ## Test suite
 
-`npm test` runs **234 tests in 12 files, all passing** (vitest, 2026-10-09). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. They don't need a cloned benchmark target.
+`npm test` runs **239 tests in 12 files, all passing** (vitest, 2026-10-09). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. They don't need a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
@@ -384,7 +384,7 @@ The fix for nest was to point the aliases at files (`"@nestjs/common": ["./packa
 | `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata | 52 |
 | `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums, decorator metadata, unresolved internal imports | 35 |
 | `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed, trap direction grading | 25 |
-| `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 23 |
+| `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, the spend stop, turn-capped sessions, cost estimates, arm reuse, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 28 |
 | `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 10 |
 | `src/indexer/erasure.test.ts` | Value-position analysis, `verbatimModuleSyntax` gate | 8 |
 | `benchmarks/oracle/tarjan.test.ts` | Independent SCC implementation | 6 |
@@ -443,4 +443,11 @@ The benchmark harness needs the standalone `claude` CLI on `PATH`. If it is inst
 shell started before it was added to `PATH` cannot see it, the harness falls back to the
 standard `~/.local/bin` location; set `RIE_CLAUDE_BIN` to override explicitly. Useful flags:
 `npm run bench` takes `--config=nest`, `--tasks=id,id`, `--arms=baseline,assisted`, `--runs=N`, `--skip-build`;
-`npm run harness` takes `--config=nest`, `--tools=baseline,rie`, `--category=…`, `--task-ids=id,id`, `--limit=N`, `--runs=N`, `--dry-run`, `--skip-build`.
+`npm run harness` takes `--config=nest`, `--tools=baseline,rie`, `--category=…`, `--task-ids=id,id`, `--limit=N`, `--runs=N`, `--dry-run`, `--skip-build`, `--resume=<results>`.
+
+Spending controls for the harness. Before launching, it prints an estimated cost per arm from the mean cost of past sessions on the same repo and category.
+
+- `--max-spend=USD` stops launching once this invocation has spent that much. The results file is marked `stopped_early`, and `--resume` finishes it.
+- `--pilot` runs each task once, to catch a prompt or grader bug before the full run. Its results are named `<repo>-pilot-*`. The default is 3 runs per task; use `--runs=5` only for numbers you publish.
+- `--reuse=baseline=<results.json>` uses an unchanged arm's sessions from an earlier run instead of paying for new ones. It is refused if any session is missing or any task's prompt changed since that run, and `meta.reused` records the source and its CLI version.
+- `--max-turns=N` caps each session (default 150, about twice the most any session has used; `0` turns it off). A capped session counts as wrong and is reported in its own `capped` column, so a cap that is too tight shows up instead of quietly favoring the cheaper arm.

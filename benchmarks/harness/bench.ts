@@ -40,6 +40,10 @@ export interface RunRecord {
   metrics?: TranscriptMetrics;
   grade: Grade;
   final_text?: string;
+  /** The session hit the turn cap before answering (graded on whatever it said, usually nothing). */
+  capped?: boolean;
+  /** Copied from an earlier results file by --reuse, not run in this attempt. */
+  reused_from?: string;
 }
 
 export interface BenchmarkOptions {
@@ -58,6 +62,8 @@ export interface BenchmarkOptions {
    * rotated order.
    */
   keep?: RunRecord[];
+  /** Checked before each new launch; true stops the run there and returns what finished (--max-spend). */
+  shouldStop?: () => boolean;
 }
 
 export function runBenchmark(opts: BenchmarkOptions): RunRecord[] {
@@ -78,6 +84,7 @@ export function runBenchmark(opts: BenchmarkOptions): RunRecord[] {
           opts.onRun?.(kept, records.length, total, true);
           continue;
         }
+        if (opts.shouldStop?.()) return records;
         let record: RunRecord;
         try {
           const out = opts.runner({
@@ -100,6 +107,7 @@ export function runBenchmark(opts: BenchmarkOptions): RunRecord[] {
             metrics: out.metrics,
             grade: gradeAnswer(task, out.final_text, opts.repoRoot),
             final_text: out.final_text,
+            ...(out.capped && { capped: true }),
           };
         } catch (err) {
           record = {
@@ -122,6 +130,8 @@ export interface CellSummary {
   tool: string;
   runs: number;
   errors: number;
+  /** Runs stopped by the turn cap. Reported apart: each one is a wrong answer the cap may have caused. */
+  capped: number;
   correct: number;
   accuracy: number;
   mean_score: number | null;
@@ -146,6 +156,7 @@ function summarizeCell(key: string, tool: string, rs: RunRecord[]): CellSummary 
     tool,
     runs: rs.length,
     errors: rs.filter((r) => !r.ok).length,
+    capped: rs.filter((r) => r.capped).length,
     correct: correct.length,
     accuracy: rs.length === 0 ? 0 : correct.length / rs.length,
     mean_score: mean(rs.map((r) => r.grade.score)),

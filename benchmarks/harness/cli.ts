@@ -14,6 +14,17 @@
  *          --resume=<results.json | .partial.jsonl>  (finish an interrupted run: keep its successful
  *          sessions, run only the missing or failed ones, and write the combined results back to that
  *          run's results file; meta.resumed records what was kept and what was re-run)
+ * Spend:   the plan prints an estimated cost per arm, from the mean cost of past sessions
+ *          --max-spend=USD  (stop launching once this invocation's spend reaches USD; the
+ *          results are marked stopped_early and finish later with --resume)
+ *          --pilot  (one run per task, results named <label>-pilot-*, to catch prompt or grader
+ *          bugs first; the default is 3 runs - use --runs=5 only for numbers you publish)
+ *          --reuse=<tool>=<results.json>[,...]  (use that arm's sessions from an earlier run
+ *          instead of new ones - for an arm that hasn't changed, like the Read/Grep baseline;
+ *          refused if any task's prompt changed or a session is missing; recorded in meta.reused)
+ *          --max-turns=N  (cap each session at N turns, default 150, 0 = off; a capped session
+ *          counts as wrong and is reported in its own column - keep the cap far above normal
+ *          use, or it hands the cheaper arm wins it didn't earn)
  *
  * Each finished run is also appended to <out>.partial.jsonl as it completes, so a
  * run stopped midway keeps the sessions it already paid for. The file is deleted
@@ -36,6 +47,7 @@ import { describeUnresolved } from "../../src/indexer/resolution.js";
 import { claudeArgs, resolveClaudeBin, runClaude } from "./claude.js";
 import { runBenchmark, summarize, type CellSummary, type RunRecord, type ToolArm } from "./bench.js";
 import { buildPrompt } from "./grade.js";
+import { estimateCost, loadCostHistory, loadReusedArm, type ReuseSource } from "./budget.js";
 
 const BENCH_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PROJECT_ROOT = join(BENCH_DIR, "..");
@@ -88,10 +100,30 @@ interface ToolSpec {
   system_note?: string;
 }
 const registry = (JSON.parse(readFileSync(join(BENCH_DIR, "tools.json"), "utf8")) as { tools: Record<string, ToolSpec> }).tools;
-const toolNames = list("tools") ?? Object.keys(registry);
+// --reuse=<tool>=<results.json>[,...]: that arm's earlier sessions stand in for new ones.
+const reuseSources: ReuseSource[] = (list("reuse") ?? []).map((spec) => {
+  const eq = spec.indexOf("=");
+  if (eq < 1) throw new Error(`--reuse expects <tool>=<results.json>, got "${spec}"`);
+  return { tool: spec.slice(0, eq), path: resolve(spec.slice(eq + 1)) };
+});
+const reusedNames = reuseSources.map((s) => s.tool);
+const explicitTools = list("tools");
+for (const name of reusedNames) {
+  if (explicitTools?.includes(name)) throw new Error(`"${name}" is both in --tools and --reuse - pick one`);
+}
+const toolNames = [...new Set([...(explicitTools ?? Object.keys(registry)), ...reusedNames])];
 for (const name of toolNames) if (!registry[name]) throw new Error(`unknown tool "${name}" (see benchmarks/tools.json)`);
 
-const runs = Number(flag("runs") ?? 3);
+// --pilot: one run per task, to catch prompt and grader bugs before paying for the full run.
+// Three runs is the default for internal checks; pass --runs=5 for numbers you publish.
+const pilot = args.includes("--pilot");
+if (pilot && flag("runs") && flag("runs") !== "1") throw new Error("--pilot means one run per task - drop --runs");
+const runs = pilot ? 1 : Number(flag("runs") ?? 3);
+const maxSpend = flag("max-spend") === undefined ? undefined : Number(flag("max-spend"));
+if (maxSpend !== undefined && !(maxSpend > 0)) throw new Error(`--max-spend must be a dollar amount above 0, got "${flag("max-spend")}"`);
+// 150 is about twice the most turns any session has taken (74, an element-web baseline);
+// medians are 5-11. 0 turns the cap off.
+const maxTurns = Number(flag("max-turns") ?? 150);
 const model = flag("model");
 const rieDb = join(BENCH_DIR, `harness-${label}-index.db`);
 const placeholders: Record<string, string> = {
@@ -129,14 +161,33 @@ const tools: ToolArm[] = toolNames.map((name) => {
 
 console.log(`Task set: ${tasksPath} (${taskSet.repo})`);
 console.log(`Repo root: ${repoRoot}`);
-console.log(`Tasks: ${tasks.length}  Tools: ${toolNames.join(", ")}  Runs per tool: ${runs}  Model: ${model ?? "(CLI default)"}`);
-console.log(`Agent sessions to launch: ${tasks.length * tools.length * runs}`);
+console.log(
+  `Tasks: ${tasks.length}  Tools: ${toolNames.join(", ")}  Runs per tool: ${runs}${pilot ? " (pilot)" : ""}  Model: ${model ?? "(CLI default)"}`
+);
+
+const reused = reuseSources.map((s) => loadReusedArm(s, tasks, runs));
+for (const r of reused) {
+  console.log(
+    `Reusing ${r.records.length} ${r.tool} session(s) from ${r.from} (CLI ${String(r.source_meta.claude_version ?? "?")}` +
+      `${r.prompts_verified ? ", prompts verified" : ", PROMPTS NOT VERIFIED - that run saved no task set"})`
+  );
+}
+const liveTools = toolNames.filter((n) => !reusedNames.includes(n));
+console.log(`Agent sessions to launch: ${tasks.length * liveTools.length * runs}`);
+const estimate = estimateCost(loadCostHistory(join(BENCH_DIR, "results", "harness")), taskSet.repo, tasks, liveTools, runs);
+const usd = (n: number | null) => (n === null ? "unknown" : `$${n.toFixed(2)}`);
+for (const a of estimate.arms) console.log(`  ${a.tool}: ${a.sessions} sessions, ~${usd(a.usd)} (from ${a.basis})`);
+console.log(`Estimated spend: ~${usd(estimate.total_usd)}${maxSpend !== undefined ? `  Hard stop at: $${maxSpend.toFixed(2)}` : ""}`);
+if (maxSpend !== undefined && estimate.total_usd !== null && estimate.total_usd > maxSpend) {
+  console.warn(`WARNING: the estimate is over --max-spend, so this run will probably stop early (finish it later with --resume).`);
+}
+console.log(`Turn cap per session: ${maxTurns > 0 ? maxTurns : "off"}`);
 
 if (dryRun) {
   const sample = tasks[0];
   console.log(`\n--- prompt for ${sample.id} (identical on every arm) ---\n${buildPrompt(sample)}\n`);
-  for (const tool of tools) {
-    const argv = claudeArgs({ prompt: "<prompt>", cwd: repoRoot, model, ...tool }, "<session-id>");
+  for (const tool of tools.filter((t) => liveTools.includes(t.name))) {
+    const argv = claudeArgs({ prompt: "<prompt>", cwd: repoRoot, model, maxTurns, ...tool }, "<session-id>");
     console.log(`[${tool.name}] claude ${argv.join(" ")}`);
     if (tool.pathPrepend || tool.env) console.log(`  PATH += ${tool.pathPrepend?.join(";") ?? ""}  env: ${JSON.stringify(tool.env ?? {})}`);
     if (tool.mcpConfigPath) console.log(readFileSync(tool.mcpConfigPath, "utf8"));
@@ -146,7 +197,7 @@ if (dryRun) {
 
 // --- setup + run --------------------------------------------------------------------
 const claudeBin = resolveClaudeBin();
-const setups = new Set(toolNames.map((n) => registry[n].setup).filter(Boolean));
+const setups = new Set(liveTools.map((n) => registry[n].setup).filter(Boolean));
 let unresolvedCount: number | null = null; // null = no arm built an index
 if (setups.has("rie-index")) {
   if (!args.includes("--skip-build")) {
@@ -194,7 +245,7 @@ const startedAt = previousMeta?.started_at ? new Date(previousMeta.started_at as
 const out =
   flag("out") ??
   (resumeFrom ? resumeFrom.replace(/\.partial\.jsonl$/, "") : undefined) ??
-  join(BENCH_DIR, "results", "harness", `${label}-${startedAt.toISOString().replace(/[:.]/g, "-")}.json`);
+  join(BENCH_DIR, "results", "harness", `${label}${pilot ? "-pilot" : ""}-${startedAt.toISOString().replace(/[:.]/g, "-")}.json`);
 const partialOut = `${out}.partial.jsonl`;
 mkdirSync(dirname(out), { recursive: true });
 const sessionTimeoutMs = Number(flag("session-timeout-min") ?? 30) * 60_000;
@@ -204,26 +255,44 @@ if (resumeFrom) {
 }
 
 const resumedAt = new Date();
+// Spend of the sessions launched by this invocation (kept and reused ones were paid for earlier).
+let spent = 0;
+const stop = { early: false };
 const records = runBenchmark({
   tasks,
   tools,
   runs,
   model,
   repoRoot,
-  keep: kept,
-  runner: (req) => runClaude(claudeBin, { ...req, timeoutMs: sessionTimeoutMs }),
+  keep: [...kept, ...reused.flatMap((r) => r.records)],
+  runner: (req) => runClaude(claudeBin, { ...req, timeoutMs: sessionTimeoutMs, maxTurns }),
+  shouldStop: () => {
+    if (maxSpend === undefined || spent < maxSpend) return false;
+    stop.early = true;
+    return true;
+  },
   onRun: (r, done, total, wasKept) => {
     appendFileSync(partialOut, JSON.stringify(r) + "\n");
-    if (wasKept) return; // already reported by the earlier attempt
+    if (wasKept) return; // already reported by the earlier attempt, or reused
+    spent += r.cost_usd ?? 0;
     const m = r.metrics;
-    const verdict = !r.ok ? `ERROR ${r.error?.split("\n")[0]}` : r.grade.correct ? "correct" : `wrong (${r.grade.reason ?? "incorrect"})`;
+    const verdict = !r.ok
+      ? `ERROR ${r.error?.split("\n")[0]}`
+      : r.capped
+        ? `CAPPED at ${maxTurns} turns`
+        : r.grade.correct
+          ? "correct"
+          : `wrong (${r.grade.reason ?? "incorrect"})`;
     console.log(
       `[${done}/${total}] ${r.task_id} / ${r.tool} / run ${r.run + 1}: ` +
         (m ? `${m.tool_calls} calls, ${m.total_tokens} tokens, ` : "") +
-        verdict
+        `${verdict}  (spent $${spent.toFixed(2)})`
     );
   },
 });
+if (stop.early) {
+  console.warn(`\nSTOPPED: spend reached $${spent.toFixed(2)} (--max-spend=${maxSpend}). Finish later with --resume=${out}`);
+}
 
 const summary = summarize(records);
 const gitHead = spawnSync("git", ["rev-parse", "HEAD"], { cwd: PROJECT_ROOT, encoding: "utf8" }).stdout.trim();
@@ -243,6 +312,24 @@ writeFileSync(
         // Everything that differed between arms besides the MCP server, exactly as launched.
         tool_launch: Object.fromEntries(tools.map(({ name, mcpConfigPath: _, ...launch }) => [name, launch])),
         runs_per_tool: runs,
+        pilot,
+        max_turns: maxTurns > 0 ? maxTurns : null,
+        max_spend_usd: maxSpend ?? null,
+        spent_usd: spent,
+        estimated_usd: estimate.total_usd,
+        // A stopped run is incomplete: its summary covers only the sessions that ran.
+        ...(stop.early && { stopped_early: { reason: "max_spend", sessions: records.length, of: tasks.length * toolNames.length * runs } }),
+        ...(reused.length > 0 && {
+          reused: reused.map((r) => ({
+            tool: r.tool,
+            from: r.from.replace(/\\/g, "/"),
+            sessions: r.records.length,
+            prompts_verified: r.prompts_verified,
+            claude_version: r.source_meta.claude_version ?? null,
+            harness_commit: r.source_meta.harness_commit ?? null,
+            started_at: r.source_meta.started_at ?? null,
+          })),
+        }),
         model_requested: model ?? null,
         models_observed: observedModels,
         claude_version: claudeVersion,
@@ -254,7 +341,7 @@ writeFileSync(
             from: resumeFrom.replace(/\\/g, "/"),
             at: resumedAt.toISOString(),
             kept: records.filter((r) => kept.includes(r)).length,
-            rerun: records.filter((r) => !kept.includes(r)).length,
+            rerun: records.filter((r) => !kept.includes(r) && !r.reused_from).length,
             discarded_failed_launches: previous.length - kept.length,
             previous_claude_version: previousMeta?.claude_version ?? null,
           },
@@ -278,12 +365,12 @@ writeFileSync(tasksOut, JSON.stringify({ ...taskSet, tasks }, null, 2) + "\n");
 const fmt = (n: number | null) => (n === null ? "-" : Math.round(n).toLocaleString("en-US"));
 const table = (title: string, cells: CellSummary[]) => {
   console.log(`\n${title}`);
-  console.log("| key | tool | accuracy | tokens / correct | median tokens [IQR] | median calls | errors |");
-  console.log("|---|---|---|---|---|---|---|");
+  console.log("| key | tool | accuracy | tokens / correct | median tokens [IQR] | median calls | errors | capped |");
+  console.log("|---|---|---|---|---|---|---|---|");
   for (const c of cells) {
     console.log(
       `| ${c.key} | ${c.tool} | ${c.correct}/${c.runs} | ${fmt(c.tokens_per_correct)} | ` +
-        `${fmt(c.median_tokens)} [${fmt(c.tokens_q1)}-${fmt(c.tokens_q3)}] | ${fmt(c.median_tool_calls)} | ${c.errors} |`
+        `${fmt(c.median_tokens)} [${fmt(c.tokens_q1)}-${fmt(c.tokens_q3)}] | ${fmt(c.median_tool_calls)} | ${c.errors} | ${c.capped} |`
     );
   }
 };

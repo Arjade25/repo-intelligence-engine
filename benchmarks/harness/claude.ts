@@ -138,6 +138,13 @@ export interface ClaudeRunRequest {
   pathPrepend?: string[];
   /** Appended to the system prompt: what this arm has, the way MCP tool descriptions tell the rie arm. */
   appendSystemPrompt?: string;
+  /**
+   * Stop the session after this many turns (claude --max-turns). A runaway guard,
+   * not a budget: one element-web baseline session used 74 turns and ~3M tokens.
+   * Set it well above normal use, or a tight cap hands the cheaper arm wins it
+   * didn't earn.
+   */
+  maxTurns?: number;
 }
 
 export interface ClaudeRunOutput {
@@ -148,6 +155,8 @@ export interface ClaudeRunOutput {
   /** From `--output-format json`, when present. Informational: cost depends on cache hits, tokens don't. */
   cost_usd: number | null;
   num_turns: number | null;
+  /** True when the session hit maxTurns before answering. */
+  capped?: boolean;
 }
 
 export function claudeArgs(req: ClaudeRunRequest, sessionId: string): string[] {
@@ -169,6 +178,7 @@ export function claudeArgs(req: ClaudeRunRequest, sessionId: string): string[] {
   if (req.model) args.push("--model", req.model);
   if (req.mcpConfigPath) args.push("--mcp-config", req.mcpConfigPath);
   if (req.appendSystemPrompt) args.push("--append-system-prompt", req.appendSystemPrompt);
+  if (req.maxTurns) args.push("--max-turns", String(req.maxTurns));
   return args;
 }
 
@@ -212,15 +222,18 @@ export function runClaude(claudeBin: string, req: ClaudeRunRequest): ClaudeRunOu
       `could not spawn "${claudeBin}": ${(result.error as NodeJS.ErrnoException).code ?? result.error.message}`
     );
   }
-  if (result.status !== 0) {
-    throw new Error(`claude exited ${result.status}${result.signal ? ` (signal ${result.signal})` : ""}: ${result.stderr || "(no stderr)"}`);
-  }
-
-  let parsed: { result?: string; total_cost_usd?: number; num_turns?: number } = {};
+  let parsed: { result?: string; subtype?: string; total_cost_usd?: number; num_turns?: number } = {};
   try {
     parsed = JSON.parse(result.stdout);
   } catch {
     parsed = { result: result.stdout };
+  }
+  // Hitting --max-turns exits 1 but still prints the session's JSON (subtype
+  // error_max_turns, checked on CLI 2.1.295). It is a finished, paid-for session
+  // that gave no answer - a wrong run, not a failed launch for --resume to retry.
+  const capped = parsed.subtype === "error_max_turns";
+  if (result.status !== 0 && !capped) {
+    throw new Error(`claude exited ${result.status}${result.signal ? ` (signal ${result.signal})` : ""}: ${result.stderr || "(no stderr)"}`);
   }
 
   return {
@@ -230,5 +243,6 @@ export function runClaude(claudeBin: string, req: ClaudeRunRequest): ClaudeRunOu
     wall_ms,
     cost_usd: typeof parsed.total_cost_usd === "number" ? parsed.total_cost_usd : null,
     num_turns: typeof parsed.num_turns === "number" ? parsed.num_turns : null,
+    ...(capped && { capped: true }),
   };
 }
