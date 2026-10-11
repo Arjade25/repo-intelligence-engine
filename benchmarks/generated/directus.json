@@ -67,7 +67,7 @@
     {
       "id": "directus-cycle-trace-001",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Starting from src/utils/get-cache-key.ts, give a chain of runtime imports that leads back to src/utils/get-cache-key.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count. List the files in order, starting and ending with src/utils/get-cache-key.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Starting from src/utils/get-cache-key.ts, give a chain of runtime imports that leads back to src/utils/get-cache-key.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count, and neither does a dynamic import() call, which loads its module later rather than when the importing file loads. List the files in order, starting and ending with src/utils/get-cache-key.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -1841,7 +1841,7 @@
     {
       "id": "directus-cycle-trace-002",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Starting from src/controllers/access.ts, give a chain of runtime imports that leads back to src/controllers/access.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count. List the files in order, starting and ending with src/controllers/access.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Starting from src/controllers/access.ts, give a chain of runtime imports that leads back to src/controllers/access.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count, and neither does a dynamic import() call, which loads its module later rather than when the importing file loads. List the files in order, starting and ending with src/controllers/access.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -3616,7 +3616,7 @@
     {
       "id": "directus-cycle-trace-003",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Starting from src/license/utils/is-sso-bypass-allowed.ts, give a chain of runtime imports that leads back to src/license/utils/is-sso-bypass-allowed.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count. List the files in order, starting and ending with src/license/utils/is-sso-bypass-allowed.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Starting from src/license/utils/is-sso-bypass-allowed.ts, give a chain of runtime imports that leads back to src/license/utils/is-sso-bypass-allowed.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count, and neither does a dynamic import() call, which loads its module later rather than when the importing file loads. List the files in order, starting and ending with src/license/utils/is-sso-bypass-allowed.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -5390,7 +5390,7 @@
     {
       "id": "directus-cycle-trace-004",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Starting from src/utils/schema/apply-diff.ts, give a chain of runtime imports that leads back to src/utils/schema/apply-diff.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count. List the files in order, starting and ending with src/utils/schema/apply-diff.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Starting from src/utils/schema/apply-diff.ts, give a chain of runtime imports that leads back to src/utils/schema/apply-diff.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count, and neither does a dynamic import() call, which loads its module later rather than when the importing file loads. List the files in order, starting and ending with src/utils/schema/apply-diff.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -7163,7 +7163,7 @@
     {
       "id": "directus-cycle-trace-005",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Starting from src/ai/tools/trigger-flow/index.ts, give a chain of runtime imports that leads back to src/ai/tools/trigger-flow/index.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count. List the files in order, starting and ending with src/ai/tools/trigger-flow/index.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Starting from src/ai/tools/trigger-flow/index.ts, give a chain of runtime imports that leads back to src/ai/tools/trigger-flow/index.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count, and neither does a dynamic import() call, which loads its module later rather than when the importing file loads. List the files in order, starting and ending with src/ai/tools/trigger-flow/index.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -8940,7 +8940,7 @@
     {
       "id": "directus-cycle-trace-006",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Starting from src/websocket/collab/verify-permissions.ts, give a chain of runtime imports that leads back to src/websocket/collab/verify-permissions.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count. List the files in order, starting and ending with src/websocket/collab/verify-permissions.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Starting from src/websocket/collab/verify-permissions.ts, give a chain of runtime imports that leads back to src/websocket/collab/verify-permissions.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count, and neither does a dynamic import() call, which loads its module later rather than when the importing file loads. List the files in order, starting and ending with src/websocket/collab/verify-permissions.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -10714,7 +10714,7 @@
     {
       "id": "directus-cycle-trace-007",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Starting from src/websocket/controllers/base.ts, give a chain of runtime imports that leads back to src/websocket/controllers/base.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count. List the files in order, starting and ending with src/websocket/controllers/base.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Starting from src/websocket/controllers/base.ts, give a chain of runtime imports that leads back to src/websocket/controllers/base.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count, and neither does a dynamic import() call, which loads its module later rather than when the importing file loads. List the files in order, starting and ending with src/websocket/controllers/base.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -12487,7 +12487,7 @@
     {
       "id": "directus-cycle-trace-008",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Starting from src/utils/create-admin.ts, give a chain of runtime imports that leads back to src/utils/create-admin.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count. List the files in order, starting and ending with src/utils/create-admin.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Starting from src/utils/create-admin.ts, give a chain of runtime imports that leads back to src/utils/create-admin.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count, and neither does a dynamic import() call, which loads its module later rather than when the importing file loads. List the files in order, starting and ending with src/utils/create-admin.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -14260,7 +14260,7 @@
     {
       "id": "directus-cycle-trace-009",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Starting from src/controllers/utils.ts, give a chain of runtime imports that leads back to src/controllers/utils.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count. List the files in order, starting and ending with src/controllers/utils.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Starting from src/controllers/utils.ts, give a chain of runtime imports that leads back to src/controllers/utils.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count, and neither does a dynamic import() call, which loads its module later rather than when the importing file loads. List the files in order, starting and ending with src/controllers/utils.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -16034,7 +16034,7 @@
     {
       "id": "directus-cycle-trace-010",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Starting from src/controllers/mcp/index.ts, give a chain of runtime imports that leads back to src/controllers/mcp/index.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count. List the files in order, starting and ending with src/controllers/mcp/index.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Starting from src/controllers/mcp/index.ts, give a chain of runtime imports that leads back to src/controllers/mcp/index.ts. Only count imports that survive compilation to JavaScript - an import TypeScript erases because it is only used as a type does not count, and neither does a dynamic import() call, which loads its module later rather than when the importing file loads. List the files in order, starting and ending with src/controllers/mcp/index.ts. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -29897,7 +29897,7 @@
     {
       "id": "directus-type-trap-001",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Is there a runtime circular dependency between src/ai/tools/fields/index.ts and src/controllers/users.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/ai/tools/fields/index.ts to src/controllers/users.ts, from src/controllers/users.ts to src/ai/tools/fields/index.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Is there a runtime circular dependency between src/ai/tools/fields/index.ts and src/controllers/users.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/ai/tools/fields/index.ts to src/controllers/users.ts, from src/controllers/users.ts to src/ai/tools/fields/index.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -29954,7 +29954,7 @@
     {
       "id": "directus-type-trap-002",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Is there a runtime circular dependency between src/services/assets.ts and src/services/specifications.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/services/assets.ts to src/services/specifications.ts, from src/services/specifications.ts to src/services/assets.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Is there a runtime circular dependency between src/services/assets.ts and src/services/specifications.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/services/assets.ts to src/services/specifications.ts, from src/services/specifications.ts to src/services/assets.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -30001,7 +30001,7 @@
     {
       "id": "directus-type-trap-003",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Is there a runtime circular dependency between src/controllers/mcp/index.ts and src/controllers/server.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/mcp/index.ts to src/controllers/server.ts, from src/controllers/server.ts to src/controllers/mcp/index.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Is there a runtime circular dependency between src/controllers/mcp/index.ts and src/controllers/server.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/mcp/index.ts to src/controllers/server.ts, from src/controllers/server.ts to src/controllers/mcp/index.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -30050,7 +30050,7 @@
     {
       "id": "directus-type-trap-004",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Is there a runtime circular dependency between src/extensions/lib/get-extensions-settings.ts and src/license/utils/get-core-grace-expires-at.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/extensions/lib/get-extensions-settings.ts to src/license/utils/get-core-grace-expires-at.ts, from src/license/utils/get-core-grace-expires-at.ts to src/extensions/lib/get-extensions-settings.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Is there a runtime circular dependency between src/extensions/lib/get-extensions-settings.ts and src/license/utils/get-core-grace-expires-at.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/extensions/lib/get-extensions-settings.ts to src/license/utils/get-core-grace-expires-at.ts, from src/license/utils/get-core-grace-expires-at.ts to src/extensions/lib/get-extensions-settings.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -30104,7 +30104,7 @@
     {
       "id": "directus-type-trap-005",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Is there a runtime circular dependency between src/controllers/notifications.ts and src/license/utils/get-core-grace-expires-at.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/notifications.ts to src/license/utils/get-core-grace-expires-at.ts, from src/license/utils/get-core-grace-expires-at.ts to src/controllers/notifications.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Is there a runtime circular dependency between src/controllers/notifications.ts and src/license/utils/get-core-grace-expires-at.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/notifications.ts to src/license/utils/get-core-grace-expires-at.ts, from src/license/utils/get-core-grace-expires-at.ts to src/controllers/notifications.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -30156,7 +30156,7 @@
     {
       "id": "directus-type-trap-006",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Is there a runtime circular dependency between src/services/relations.ts and src/websocket/controllers/base.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/services/relations.ts to src/websocket/controllers/base.ts, from src/websocket/controllers/base.ts to src/services/relations.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Is there a runtime circular dependency between src/services/relations.ts and src/websocket/controllers/base.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/services/relations.ts to src/websocket/controllers/base.ts, from src/websocket/controllers/base.ts to src/services/relations.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -30203,7 +30203,7 @@
     {
       "id": "directus-type-trap-007",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Is there a runtime circular dependency between src/services/import/import.ts and src/websocket/handlers/subscribe.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/services/import/import.ts to src/websocket/handlers/subscribe.ts, from src/websocket/handlers/subscribe.ts to src/services/import/import.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Is there a runtime circular dependency between src/services/import/import.ts and src/websocket/handlers/subscribe.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/services/import/import.ts to src/websocket/handlers/subscribe.ts, from src/websocket/handlers/subscribe.ts to src/services/import/import.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -30250,7 +30250,7 @@
     {
       "id": "directus-type-trap-008",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Is there a runtime circular dependency between src/controllers/collections.ts and src/license/entitlements/manager.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/collections.ts to src/license/entitlements/manager.ts, from src/license/entitlements/manager.ts to src/controllers/collections.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Is there a runtime circular dependency between src/controllers/collections.ts and src/license/entitlements/manager.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/collections.ts to src/license/entitlements/manager.ts, from src/license/entitlements/manager.ts to src/controllers/collections.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -30297,7 +30297,7 @@
     {
       "id": "directus-type-trap-009",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Is there a runtime circular dependency between src/controllers/items.ts and src/services/collections.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/items.ts to src/services/collections.ts, from src/services/collections.ts to src/controllers/items.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Is there a runtime circular dependency between src/controllers/items.ts and src/services/collections.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/items.ts to src/services/collections.ts, from src/services/collections.ts to src/controllers/items.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",
@@ -30346,7 +30346,7 @@
     {
       "id": "directus-type-trap-010",
       "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
-      "prompt": "Is there a runtime circular dependency between src/middleware/cache.ts and src/services/mcp-oauth/index.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/middleware/cache.ts to src/services/mcp-oauth/index.ts, from src/services/mcp-oauth/index.ts to src/middleware/cache.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "prompt": "Is there a runtime circular dependency between src/middleware/cache.ts and src/services/mcp-oauth/index.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/middleware/cache.ts to src/services/mcp-oauth/index.ts, from src/services/mcp-oauth/index.ts to src/middleware/cache.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
       "tsconfig_flags": {
         "module": "Node16",
         "moduleResolution": "Node16",

@@ -103,7 +103,7 @@ describe("engine queries (fixtures/sample-repo)", () => {
     // Hand-traced: main.ts has NO direct edge to mathUtils.ts (only through the
     // barrel), so the shortest path is main.ts -> index.ts -> mathUtils.ts (2 hops).
     // This exercises actual BFS, not just a single-edge lookup.
-    expect(dependencyPath(db, "run", "add")).toEqual({
+    expect(dependencyPath(db, "run", "add")).toMatchObject({
       found: true,
       chain: [mainTs, indexTs, mathUtilsTs],
     });
@@ -126,7 +126,11 @@ describe("engine queries (fixtures/sample-repo)", () => {
   });
 
   it("dependency_path returns a trivial one-file chain for symbols in the same file", () => {
-    expect(dependencyPath(db, "add", "PI")).toEqual({ found: true, chain: [mathUtilsTs] });
+    expect(dependencyPath(db, "add", "PI")).toEqual({
+      found: true,
+      chain: [mathUtilsTs],
+      path_type: "runtime_and_type_only",
+    });
   });
 
   it("dependency_path returns not-found for an unknown symbol", () => {
@@ -138,8 +142,8 @@ describe("engine queries (fixtures/sample-repo)", () => {
 
   it("dependency_path accepts file paths at either end, including a symbol-less barrel", () => {
     // index.ts declares no symbols, so before file ends it could not be named at all.
-    expect(dependencyPath(db, "src/main.ts", "src\\index.ts")).toEqual({ found: true, chain: [mainTs, indexTs] });
-    expect(dependencyPath(db, "run", "mathUtils.ts")).toEqual({
+    expect(dependencyPath(db, "src/main.ts", "src\\index.ts")).toMatchObject({ found: true, chain: [mainTs, indexTs] });
+    expect(dependencyPath(db, "run", "mathUtils.ts")).toMatchObject({
       found: true,
       chain: [mainTs, indexTs, mathUtilsTs],
     });
@@ -207,7 +211,7 @@ describe("engine queries with ambiguous symbol names (synthetic db)", () => {
   it("dependency_path discloses candidates and its deterministic (alphabetical) choice", () => {
     const result = dependencyPath(db, "Dup", "Target");
     // /repo/a.ts sorts before /repo/b.ts, and a.ts -> target.ts is a real edge.
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       found: true,
       chain: ["/repo/a.ts", "/repo/target.ts"],
       ambiguity: { symbol_a: { chosen: "/repo/a.ts", candidates: ["/repo/a.ts", "/repo/b.ts"] } },
@@ -216,7 +220,7 @@ describe("engine queries with ambiguous symbol names (synthetic db)", () => {
 
   it("dependency_path omits the ambiguity field entirely for unique names", () => {
     const result = dependencyPath(db, "Target", "Target");
-    expect(result).toEqual({ found: true, chain: ["/repo/target.ts"] });
+    expect(result).toEqual({ found: true, chain: ["/repo/target.ts"], path_type: "runtime_and_type_only" });
     expect("ambiguity" in result).toBe(false);
   });
 });
@@ -619,6 +623,52 @@ describe("findCycleThroughFile hops", () => {
     expect(findCycleThroughFile(old, "/r/x.ts").hops).toEqual([
       { at: "/r/x.ts", statement: null },
       { at: "/r/y.ts", statement: null },
+    ]);
+  });
+
+  it("dependency_path cites each hop and marks the erased ones", () => {
+    expect(dependencyPath(db, "/repo/b.ts", "/repo/a.ts")).toMatchObject({
+      found: true,
+      chain: ["/repo/b.ts", "/repo/a.ts"],
+      path_type: "runtime_and_type_only",
+      hops: [{ at: "/repo/b.ts:1", statement: "import { Shape } from './a';", type_only: true }],
+    });
+  });
+
+  it("dependency_path runtime_only skips erased imports and says when only a type-level path exists", () => {
+    const result = dependencyPath(db, "/repo/b.ts", "/repo/a.ts", { runtimeOnly: true });
+    expect(result).toMatchObject({
+      found: false,
+      chain: [],
+      path_type: "runtime",
+      files_searched: 1,
+      type_only_path_exists: true,
+    });
+    expect(result.note).toMatch(/^No runtime import path/);
+    expect(result.note).toContain("cannot run");
+
+    expect(dependencyPath(db, "/repo/a.ts", "/repo/b.ts", { runtimeOnly: true })).toMatchObject({
+      found: true,
+      hops: [{ at: "/repo/a.ts:3", statement: "import { type T, run } from './b';", runtime_names: ["run"] }],
+    });
+    expect(dependencyPath(db, "/repo/c.ts", "/repo/a.ts", { runtimeOnly: true })).toMatchObject({
+      found: false,
+      type_only_path_exists: false,
+    });
+  });
+
+  it("dependency_path runtime_only takes a longer runtime chain over a shorter erased one", () => {
+    const detour = dbWithEvidence([
+      { from: "/r/x.ts", to: "/r/z.ts", line: 1, stmt: "import type { Z } from './z';", name: "Z", typeOnly: true },
+      { from: "/r/x.ts", to: "/r/y.ts", line: 2, stmt: "import { y } from './y';", name: "y" },
+      { from: "/r/y.ts", to: "/r/z.ts", line: 1, stmt: "import { z } from './z';", name: "z" },
+    ]);
+    expect(dependencyPath(detour, "/r/x.ts", "/r/z.ts").chain).toEqual(["/r/x.ts", "/r/z.ts"]);
+    const runtime = dependencyPath(detour, "/r/x.ts", "/r/z.ts", { runtimeOnly: true });
+    expect(runtime.chain).toEqual(["/r/x.ts", "/r/y.ts", "/r/z.ts"]);
+    expect(runtime.hops).toEqual([
+      { at: "/r/x.ts:2", statement: "import { y } from './y';", runtime_names: ["y"] },
+      { at: "/r/y.ts:1", statement: "import { z } from './z';", runtime_names: ["z"] },
     ]);
   });
 

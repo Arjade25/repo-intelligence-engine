@@ -33,7 +33,7 @@ function json(data: unknown) {
 
 export function createServer(db: Database.Database, tsconfigPath: string): McpServer {
   const server = new McpServer({ name: "repo-intelligence-engine", version: "0.1.0" });
-  // Cycle tools report paths relative to the tsconfig's directory - the repo root an
+  // Cycle and path tools report paths relative to the tsconfig's directory - the repo root an
   // agent works in - since absolute paths were most of their output's size.
   const root = dirname(resolve(tsconfigPath));
 
@@ -77,14 +77,24 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
   server.tool(
     "dependency_path",
     "Is there an import path from A to B, and what is it (shortest file chain, following static imports " +
-      "and re-exports, including type-only ones). Each end may be a symbol name or a file path. If a symbol " +
+      "and re-exports, including type-only ones by default). Each end may be a symbol name or a file path. If a symbol " +
       "name is declared in multiple files, the result's `ambiguity` field lists every candidate and which was used. " +
+      "Each entry in hops is the evidence for one step: the statement's file:line and text, runtime_names (imported " +
+      "names the type checker found used as values), and type_only (true = the step exists only through imports " +
+      "erased at compile time). Pass runtime_only to follow only imports that survive compilation - the question " +
+      "for runtime cycles and load order; then, when there is no runtime path, type_only_path_exists says whether " +
+      "one appears once erased imports count. " +
       "found:false with files_searched means the search was exhaustive over everything A imports - no need to verify by hand.",
     {
       symbol_a: z.string().describe("start: a symbol name or a file path"),
       symbol_b: z.string().describe("target: a symbol name or a file path"),
+      runtime_only: z
+        .boolean()
+        .optional()
+        .describe("follow only imports that survive compilation, skipping type-only ones (default false)"),
     },
-    async ({ symbol_a, symbol_b }) => json(dependencyPath(db, symbol_a, symbol_b))
+    async ({ symbol_a, symbol_b, runtime_only }) =>
+      json(dependencyPath(db, symbol_a, symbol_b, { runtimeOnly: runtime_only, root }))
   );
 
   server.tool(
