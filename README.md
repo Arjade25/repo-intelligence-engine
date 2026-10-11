@@ -444,9 +444,34 @@ jobs:
 
 Outputs are `outcome` (`fail`, `warn` or `pass`) and `report`, the path of the JSON result. It uses the runner's Node, 20 or later, and doesn't change it for later steps. A PR from a fork gets a read-only token, so it can't comment, and the report stays in the job summary. `.github/workflows/rie-check.yml` runs the action on this repo's own PRs. Its first local run found a 2-file runtime cycle already on `main`, `src/indexer/index.ts` ↔ `src/indexer/resolution.ts`, which passes because old cycles never fail a PR.
 
+### History replay: element-web
+
+`npm run replay` replays real history the way `rie check` sees a PR. It compares each commit with its first parent three ways: RIE, madge (configured as in the bash-madge arm, restricted to the tsconfig's files), and the emit oracle, which compiles both snapshots and supplies the labels. The same event rules apply to all three graphs, so any disagreement comes from the graph. Measured on element-web `apps/web` on 2026-10-11, between the `apps/web` move (`91a3cb03c1`, 2026-02-24) and the benchmark commit `3af3cbec`. That stretch is 1,555 first-parent commits.
+
+- **Finding the positives.** Most commits change no runtime cycle. `--mine` compares the oracle's cycle signature (groups and each member's shortest loop) every 25 commits and bisects wherever two differ. It found the **40 commits that change runtime cycles**, using 207 oracle runs instead of 1,555. It uses only the oracle, so which commits were picked owes nothing to RIE. 32 of the 40 fire an event; the other 8 only lengthen a loop or rename a member.
+- **Negatives.** These are 20 random commits from the same stretch (seed 1) and the 20 commits before `3af3cbec`.
+- **Seeds.** `--seed` adds one-line "PRs" at `3af3cbec` on 10 file pairs picked from the oracle's graph. Each pair gets three kinds: a runtime import that closes a loop, an `import type` of the same file, and a plain import used only as a type.
+
+| | Commits | Label fail/warn | RIE caught | madge caught | RIE false alarms | madge false alarms | Exact events, RIE | Exact events, madge |
+|---|---|---|---|---|---|---|---|---|
+| History (mined + random + recent) | 59 compared, 21 unchanged | 21 | **21** | 20 | 0 | 0 | **59 of 59** | 35 of 59 |
+| Seeds: import closing a loop | 10 | 10 | **10** | **10** | 0 | 0 | **10 of 10** | 5 of 10 |
+| Seeds: `import type` | 10 | 0 | – | – | 0 | 0 | 10 of 10 | 10 of 10 |
+| Seeds: import used only as a type | 10 | 0 | – | – | **0** | **10** | 10 of 10 | 0 of 10 |
+
+The labelled events in history were 16 `cycle_grown`, 8 `cycle_shrunk`, 7 `cycle_resolved`, 2 `cycles_merged`, 2 `loop_shortened`, 1 `cycle_split` and 1 `new_cycle`. RIE's runtime edges matched the oracle's exactly at every compared commit: none were extra and none were missing. No commit was skipped.
+
+**What madge gets wrong, and why.** madge counts dynamic `import()` and imports used only in type positions, so its runtime groups are inflated. Its largest element-web group has 158 files, where the compiled code has 115. In one seeded merge it reported a 423-file group where the real one has 93. It usually still names the right event, which is why it caught 30 of 31 regressions overall. But its file lists are wrong in 24 of 59 history commits, and it raised false alarms on all 10 imports used only as types.
+
+**The commit madge missed is the best demo.** `StoresApi.ts` loads the room-list store with a dynamic `import()`, "to prevent circular dependency issues". Its developers kept those files out of the cycle on purpose. Commit `526b4b8c33`, "Room list: remove usage of old room list store…", adds a static `import RoomListStoreV3` at `InviteDialog.tsx:29`. That pulls 10 room-list-v3 files into the runtime cycle, which grows from 126 to 136 files. RIE and the oracle report `cycle_grown`, and RIE gives the loop: `InviteDialog` → `RoomListStoreV3` → `SpaceStore` → `LegacyRoomList` → `utils/space` → `RoomInvite` → `InviteDialog`, with the line of each import. madge reports no change, because it had counted the dynamic import all along.
+
+**Run time.** On the 20 recent commits, run alone, RIE took a median 11.3 s per commit and madge 23.0 s; the oracle took about 33 s per snapshot. The later runs shared the CPU between two checkouts, so their timings aren't comparable.
+
+**Limits.** Dependencies aren't installed at each commit, the same as in the benchmark runs: workspace packages and `matrix-js-sdk` count as external on all three sides. The miner can miss a change that is undone within 25 commits. The labels come from the same event rules applied to the oracle's graph, so the check of the rules themselves is the 16 fixture cases. directus hasn't been replayed yet. Results are in `benchmarks/results/replay/element-web-*.jsonl`. To summarize them, run `npm run replay -- --summarize=<files>`.
+
 ## Test suite
 
-`npm test` runs **353 tests in 16 files, all passing, plus 22 skipped** (vitest, 2026-10-11). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
+`npm test` runs **357 tests in 18 files, all passing, plus 22 skipped** (vitest, 2026-10-11). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
@@ -459,6 +484,8 @@ Outputs are `outcome` (`fail`, `warn` or `pass`) and `report`, the path of the J
 | `src/check/cycle-events.test.ts` | `rie check` against every cycle event case: events, outcome and evidence; per-repo outcome overrides | 17 |
 | `src/check/git.test.ts` | `--base-ref`: merge base, renames from git, worktree and link cleanup; relative tsconfig paths; runtime names in the report | 3 |
 | `src/check/report.test.ts` | The PR comment: marker, event table strictest first, loops for fail and warn only, caps on long lists | 3 |
+| `benchmarks/replay/replay.test.ts` | Replay on a 4-commit repo: three-way comparison, unchanged commits, dynamic `import()` (madge disagrees), scoring; seeded cases of all three kinds | 3 |
+| `benchmarks/replay/mine.test.ts` | Mining finds exactly the cycle-changing commits without computing every commit | 1 |
 | `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 10 |
 | `src/indexer/erasure.test.ts` | Value-position analysis, `verbatimModuleSyntax` gate | 8 |
 | `benchmarks/oracle/tarjan.test.ts` | Independent SCC implementation | 6 |
