@@ -409,9 +409,44 @@ npm run check -- tsconfig.json                               # one snapshot: eve
 
 With `--base-ref`, the base is the merge base of that ref and `HEAD`, checked out into a temporary git worktree. The PR checkout's `node_modules` is linked into it, because erasure needs imports resolved. `--json` prints the full result, and `--outcome=cycle_grown:warn` overrides an outcome for a repo. The exit code is 1 on fail and 0 on warn or pass. The rules are pinned down as 16 test cases in `src/check/cycle-events.cases.ts`, each checked against a real tsc emit. On nest, the single-snapshot listing finds the same two 4-file groups as the emit oracle, in about 10 s.
 
+### GitHub Action
+
+The repo root is also a GitHub Action. It runs the check on a pull request, writes the report to the job summary, and fails the job on a fail outcome. On a fail or warn it posts a PR comment, which later pushes update in place. A pass doesn't get a new comment, but it does update an existing one, so a fixed PR shows it's fixed. Run it after your dependency install, because erasure needs imports resolved:
+
+```yaml
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  rie-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # the merge base must be in the clone
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - uses: Arjade25/repo-intelligence-engine@main
+        with:
+          tsconfig: tsconfig.json
+```
+
+| Input | Default | |
+|---|---|---|
+| `tsconfig` | `tsconfig.json` | The tsconfig to check, relative to the repo root |
+| `base-ref` | the PR's base branch | Compare with the merge base of this ref |
+| `outcomes` | none | Per-repo overrides, e.g. `cycle_grown:warn` |
+| `fail-on` | `fail` | `warn` fails the job on warnings too |
+| `comment` | `auto` | `always` also comments on a first pass; `never` writes only the job summary |
+
+Outputs are `outcome` (`fail`, `warn` or `pass`) and `report`, the path of the JSON result. It uses the runner's Node, 20 or later, and doesn't change it for later steps. A PR from a fork gets a read-only token, so it can't comment, and the report stays in the job summary. `.github/workflows/rie-check.yml` runs the action on this repo's own PRs. Its first local run found a 2-file runtime cycle already on `main`, `src/indexer/index.ts` ↔ `src/indexer/resolution.ts`, which passes because old cycles never fail a PR.
+
 ## Test suite
 
-`npm test` runs **350 tests in 15 files, all passing, plus 22 skipped** (vitest, 2026-10-11). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
+`npm test` runs **353 tests in 16 files, all passing, plus 22 skipped** (vitest, 2026-10-11). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
@@ -423,6 +458,7 @@ With `--base-ref`, the base is the merge base of that ref and `HEAD`, checked ou
 | `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, the spend stop, the consecutive-failure stop, turn-capped sessions, cost estimates, arm reuse, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 29 |
 | `src/check/cycle-events.test.ts` | `rie check` against every cycle event case: events, outcome and evidence; per-repo outcome overrides | 17 |
 | `src/check/git.test.ts` | `--base-ref`: merge base, renames from git, worktree and link cleanup; relative tsconfig paths; runtime names in the report | 3 |
+| `src/check/report.test.ts` | The PR comment: marker, event table strictest first, loops for fail and warn only, caps on long lists | 3 |
 | `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 10 |
 | `src/indexer/erasure.test.ts` | Value-position analysis, `verbatimModuleSyntax` gate | 8 |
 | `benchmarks/oracle/tarjan.test.ts` | Independent SCC implementation | 6 |
