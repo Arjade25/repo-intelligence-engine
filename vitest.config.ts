@@ -2,6 +2,9 @@ import { defineConfig, configDefaults } from "vitest/config";
 
 export default defineConfig({
   test: {
+    // Most tests build a TypeScript program, and the cycle event suites build ~70
+    // of them. Run in parallel, a test that takes 1-2 s alone can pass 5 s.
+    testTimeout: 60_000,
     // benchmarks/target-repo* are cloned external repos (plan §8/step 6) - their own
     // *.spec.ts files aren't ours to run and don't have their deps installed here.
     // Scoped to just those two dirs (not all of benchmarks/**) so first-party tests

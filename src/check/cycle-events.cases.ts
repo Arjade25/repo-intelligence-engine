@@ -1,16 +1,17 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { CycleEventType, Outcome } from "./index.js";
 
 /**
  * The cycle event rules for `rie check`, written as test cases before the check
  * exists (plan, week 1). Each case is a base snapshot, a PR snapshot, the runtime
  * cycle groups each one has, and what the check must report.
  *
- * Two test suites read these (cycle-events.test.ts):
- * - the groups and the evidence are checked now, against a real tsc emit, so a
- *   case can't encode a premise that isn't true;
- * - the expected check output is asserted once src/check/index.ts exists.
+ * Two test suites read these:
+ * - benchmarks/oracle/cycle-events.test.ts checks the groups and the evidence
+ *   against a real tsc emit, so a case can't encode a premise that isn't true;
+ * - src/check/cycle-events.test.ts asserts the check's output.
  *
  * Conventions:
  * - Paths are relative to the snapshot root ("src/a.ts"); groups and file lists
@@ -28,16 +29,7 @@ import { join } from "node:path";
  *   outcome is its strictest event's: fail > warn > pass.
  */
 
-export type Outcome = "fail" | "warn" | "pass";
-export type CycleEventType =
-  | "new_cycle"
-  | "cycle_grown"
-  | "cycles_merged"
-  | "loop_shortened"
-  | "cycle_split"
-  | "cycle_shrunk"
-  | "cycle_resolved"
-  | "no_regression";
+export type { CycleEventType, Outcome };
 
 export interface EvidenceHop {
   /** "file:line" of the import or re-export behind this hop. */

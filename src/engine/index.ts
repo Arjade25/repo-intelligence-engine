@@ -716,8 +716,9 @@ export function findCycleThroughFile(
  * grepped every hop (all 50 directus runs did) to confirm it was a real, non-type
  * import; this hands them the statement and the checker's runtime verdict instead.
  * When a pair is joined by several statements, the first runtime one is cited.
+ * Also used by rie check (src/check) for the evidence behind each finding.
  */
-function cycleHops(
+export function cycleHops(
   db: Database.Database,
   cycle: string[],
   includeTypeOnly: boolean,
