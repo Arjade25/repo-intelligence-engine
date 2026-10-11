@@ -374,11 +374,44 @@ This happened on nest. Every nest package is `"type": "module"`, so under `modul
 
 The fix for nest was to point the aliases at files (`"@nestjs/common": ["./packages/common/index.ts"]`), which is what the committed `benchmarks/tsconfig.rie.nest.json` does. With it, nest has 0 unresolved imports.
 
+## rie check
+
+`rie check` fails a PR that makes the repo's runtime import cycles worse than its base branch. It uses no model. It indexes both snapshots and compares their runtime cycle groups. A group is a set of files that all reach each other through imports that survive compilation. Groups are matched by shared files, after renamed files are mapped through git's rename detection.
+
+| Event | What changed between base and PR | Default outcome |
+|---|---|---|
+| `new_cycle` | A group appears whose files were in no cycle on base | fail |
+| `cycle_grown` | An existing group gains files | fail |
+| `cycles_merged` | Two or more base groups become one | fail |
+| `loop_shortened` | No file joins or leaves, but a new import makes a shorter loop through some file | warn |
+| `cycle_split` | A group becomes two or more smaller ones, and no file joins | pass |
+| `cycle_shrunk` | Files leave a group that still exists | pass |
+| `cycle_resolved` | A base group no longer exists | pass |
+| `no_regression` | Nothing above fired | pass |
+
+A PR's outcome is its strictest event's. Old cycles never fail a PR: directus's 157-file group fails only a PR that changes it for the worse. Type-only imports and dynamic `import()` don't count, and barrel re-exports do. Each fail or warn event shows its evidence. For each import the PR added inside a group, the report gives the shortest loop that uses it, with the line, statement and runtime names behind each hop:
+
+```
+rie check: FAIL
+
+FAIL  new_cycle: new runtime cycle of 2 files
+  joined: src/e.ts, src/f.ts
+  loop (2 files): src/e.ts -> src/f.ts -> src/e.ts
+    src/e.ts:1  import { f } from "./f.js";  (runtime: f)
+    src/f.ts:1  import { e } from "./e.js";  (runtime: e)
+```
+
+```bash
+npm run check -- --pr=tsconfig.json --base-ref=origin/main   # against the merge base, from git
+npm run check -- --pr=<tsconfig> --base=<tsconfig>           # two checkouts you already have
+npm run check -- tsconfig.json                               # one snapshot: every group and a shortest loop
+```
+
+With `--base-ref`, the base is the merge base of that ref and `HEAD`, checked out into a temporary git worktree. The PR checkout's `node_modules` is linked into it, because erasure needs imports resolved. `--json` prints the full result, and `--outcome=cycle_grown:warn` overrides an outcome for a repo. The exit code is 1 on fail and 0 on warn or pass. The rules are pinned down as 16 test cases in `src/check/cycle-events.cases.ts`, each checked against a real tsc emit. On nest, the single-snapshot listing finds the same two 4-file groups as the emit oracle, in about 10 s.
+
 ## Test suite
 
-`npm test` runs **330 tests in 13 files, all passing, plus 38 skipped** (vitest, 2026-10-11). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases write their own base and PR snapshots to a temp directory. None of the tests needs a cloned benchmark target.
-
-The skipped tests are the `rie check` contract. 16 cases in `src/check/cycle-events.cases.ts` cover the eight cycle events and the rules every event follows: runtime edges only, barrels count, old cycles never fail, renames are matched, and the strictest outcome wins. Each case states the expected events, outcome and evidence. The contract runs once `src/check/index.ts` exists. Until then, each case's premises are checked against a real tsc emit: the groups, the trap imports, the evidence lines, and that each evidence loop is the shortest loop through its new edge.
+`npm test` runs **350 tests in 15 files, all passing, plus 22 skipped** (vitest, 2026-10-11). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
@@ -388,7 +421,8 @@ The skipped tests are the `rie check` contract. 16 cases in `src/check/cycle-eve
 | `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed, trap direction grading | 25 |
 | `benchmarks/oracle/cycle-events.test.ts` | The `rie check` cycle event cases against tsc emit: groups, traps, evidence lines, shortest loops, every new edge cited | 90 (+22 that don't apply to every case) |
 | `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, the spend stop, the consecutive-failure stop, turn-capped sessions, cost estimates, arm reuse, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 29 |
-| `src/check/cycle-events.test.ts` | The `rie check` contract: each case's events, outcome and evidence (skipped until `src/check/index.ts` exists) | 16 skipped |
+| `src/check/cycle-events.test.ts` | `rie check` against every cycle event case: events, outcome and evidence; per-repo outcome overrides | 17 |
+| `src/check/git.test.ts` | `--base-ref`: merge base, renames from git, worktree and link cleanup; relative tsconfig paths; runtime names in the report | 3 |
 | `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 10 |
 | `src/indexer/erasure.test.ts` | Value-position analysis, `verbatimModuleSyntax` gate | 8 |
 | `benchmarks/oracle/tarjan.test.ts` | Independent SCC implementation | 6 |
@@ -404,6 +438,7 @@ npm install
 npm run build           # tsc -> dist/
 npm run index -- ./tsconfig.json repo-index.db   # index a repo
 npm run mcp             # start the MCP server (stdio)
+npm run check -- --pr=tsconfig.json --base-ref=origin/main   # rie check: does this branch make import cycles worse?
 npm test                # vitest
 npm run bench           # benchmark harness (spawns Claude Code per run)
 npm run oracle -- <path-to-tsconfig.json>   # diff RIE's runtime edges against a real tsc emit
