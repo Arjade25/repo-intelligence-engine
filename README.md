@@ -444,7 +444,7 @@ jobs:
 
 Outputs are `outcome` (`fail`, `warn` or `pass`) and `report`, the path of the JSON result. It uses the runner's Node, 20 or later, and doesn't change it for later steps. A PR from a fork gets a read-only token, so it can't comment, and the report stays in the job summary. `.github/workflows/rie-check.yml` runs the action on this repo's own PRs. Its first local run found a 2-file runtime cycle already on `main`, `src/indexer/index.ts` ↔ `src/indexer/resolution.ts`, which passes because old cycles never fail a PR.
 
-### History replay: element-web
+### History replay: element-web and directus
 
 `npm run replay` replays real history the way `rie check` sees a PR. It compares each commit with its first parent three ways: RIE, madge (configured as in the bash-madge arm, restricted to the tsconfig's files), and the emit oracle, which compiles both snapshots and supplies the labels. The same event rules apply to all three graphs, so any disagreement comes from the graph. Measured on element-web `apps/web` on 2026-10-11, between the `apps/web` move (`91a3cb03c1`, 2026-02-24) and the benchmark commit `3af3cbec`. That stretch is 1,555 first-parent commits.
 
@@ -465,9 +465,29 @@ The labelled events in history were 16 `cycle_grown`, 8 `cycle_shrunk`, 7 `cycle
 
 **The commit madge missed is the best demo.** `StoresApi.ts` loads the room-list store with a dynamic `import()`, "to prevent circular dependency issues". Its developers kept those files out of the cycle on purpose. Commit `526b4b8c33`, "Room list: remove usage of old room list store…", adds a static `import RoomListStoreV3` at `InviteDialog.tsx:29`. That pulls 10 room-list-v3 files into the runtime cycle, which grows from 126 to 136 files. RIE and the oracle report `cycle_grown`, and RIE gives the loop: `InviteDialog` → `RoomListStoreV3` → `SpaceStore` → `LegacyRoomList` → `utils/space` → `RoomInvite` → `InviteDialog`, with the line of each import. madge reports no change, because it had counted the dynamic import all along.
 
-**Run time.** On the 20 recent commits, run alone, RIE took a median 11.3 s per commit and madge 23.0 s; the oracle took about 33 s per snapshot. The later runs shared the CPU between two checkouts, so their timings aren't comparable.
+**directus** (`api/`, the 1,500 first-parent commits up to the benchmark commit `1694b190`, from 2024-08-30 to 2026-09-25) was replayed the same way. Mining found **26 commits that change runtime cycles**, using 178 oracle runs, and the replay added 20 random commits and the 20 most recent. directus compiles with `verbatimModuleSyntax`, which keeps a plain import even when it's used only as a type. So here the third kind of seed is a real runtime import, and the oracle labels it fail.
 
-**Limits.** Dependencies aren't installed at each commit, the same as in the benchmark runs: workspace packages and `matrix-js-sdk` count as external on all three sides. The miner can miss a change that is undone within 25 commits. The labels come from the same event rules applied to the oracle's graph, so the check of the rules themselves is the 16 fixture cases. directus hasn't been replayed yet. Results are in `benchmarks/results/replay/element-web-*.jsonl`. To summarize them, run `npm run replay -- --summarize=<files>`.
+| directus | Commits | Label fail/warn | RIE caught | madge caught | RIE false alarms | madge false alarms | Exact events, RIE | Exact events, madge |
+|---|---|---|---|---|---|---|---|---|
+| History (mined + random + recent) | 40 compared, 26 unchanged | 23 | **23** | 23 (one as warn) | 0 | 0 | **40 of 40** | 19 of 40 |
+| Seeds: import closing a loop | 10 | 10 | **10** | 9 | 0 | 0 | **10 of 10** | 5 of 10 |
+| Seeds: `import type` | 10 | 0 | – | – | 0 | 0 | 10 of 10 | 10 of 10 |
+| Seeds: plain import used only as a type (kept under `verbatimModuleSyntax`) | 10 | 10 | **10** | 9 | 0 | 0 | **10 of 10** | 5 of 10 |
+
+The labelled events were 20 `cycle_grown`, 2 `new_cycle`, 1 `cycle_shrunk` and 1 `loop_shortened`. RIE's runtime edges again matched the oracle's exactly at every compared commit. madge's largest directus group has 224 files, where the compiled code has 157, and that gap explains both of its misses:
+- **A seed it missed.** `services/tus/data-store.ts` is already inside madge's inflated group, so a real import that pulls it into the cycle (157 → 158 files) reads to madge as no change.
+- **A failure it downgraded.** Commit `dfc8797d5f` grows the real cycle, which is a fail. madge reports only `loop_shortened`, a warn.
+
+**Run time.** Each repo's 20 most recent commits ran with nothing else on the machine:
+
+| Repo | RIE (median per commit) | madge (median per commit) | Oracle (per snapshot) |
+|---|---|---|---|
+| element-web | 11.3 s | 23.0 s | about 33 s |
+| directus | 6.0 s | 10.9 s | about 15 s |
+
+The other runs shared the CPU between two checkouts, so their timings aren't comparable.
+
+**Limits.** Dependencies aren't installed at each commit, the same as in the benchmark runs: workspace packages and `matrix-js-sdk` count as external on all three sides. On directus the same `tsconfig.rie.json` is used at every commit, including the older ones. The miner can miss a change that is undone within 25 commits. The labels come from the same event rules applied to the oracle's graph, so the event rules themselves are checked separately by the 16 fixture cases. The whole replay calls no model and costs no tokens. Results are in `benchmarks/results/replay/`. To summarize them, run `npm run replay -- --summarize=<files>`.
 
 ## Test suite
 
