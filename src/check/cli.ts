@@ -9,13 +9,15 @@
  * Options: --json (the full result instead of the text report)
  *          --renames=<json file> (with --base: base path -> PR path, relative to the tsconfig directory)
  *          --outcome=cycle_grown:warn,loop_shortened:fail (per-repo outcome overrides)
+ *          --markdown-out=<file>, --json-out=<file> (also write the PR-comment markdown or the
+ *          full result there; the GitHub Action posts the first and reads the outcome from the second)
  * Exit code: 1 when the outcome is fail, 0 for warn and pass, 2 on a usage error.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { checkCycles, DEFAULT_OUTCOMES, indexSnapshot, loopEvidence, type CycleEventType, type Outcome } from "./index.js";
 import { checkAgainstRef } from "./git.js";
-import { formatLoop, formatReport } from "./report.js";
+import { formatLoop, formatMarkdown, formatReport } from "./report.js";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -72,4 +74,11 @@ const result = baseRef
   : checkCycles({ base: base!, pr, outcomes, renames: flag("renames") ? JSON.parse(readFileSync(flag("renames")!, "utf8")) : undefined });
 
 console.log(json ? JSON.stringify(result, null, 2) : formatReport(result));
+const markdownOut = flag("markdown-out");
+const jsonOut = flag("json-out");
+if (markdownOut) {
+  const baseCommit = "base_commit" in result ? (result.base_commit as string) : undefined;
+  writeFileSync(markdownOut, formatMarkdown(result, { baseCommit, baseRef }) + "\n");
+}
+if (jsonOut) writeFileSync(jsonOut, JSON.stringify(result, null, 2) + "\n");
 process.exit(result.outcome === "fail" ? 1 : 0);
