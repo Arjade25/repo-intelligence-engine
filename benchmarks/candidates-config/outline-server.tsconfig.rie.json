@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.rie.json",
+  "include": ["server/**/*", "shared/**/*", "plugins/*/server/**/*", "plugins/*/shared/**/*"]
+}

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import Database from "better-sqlite3";
 import { fileURLToPath } from "node:url";
 import { openDb } from "../storage/db.js";
 import ts from "typescript";
@@ -209,6 +212,18 @@ describe("indexRepository: is_type_only (fixtures/type-only-repo)", () => {
   // bindings are only ever used in type position. Detecting only the keyword made
   // nestjs/nest report 7 runtime cycles where an emit-verified count found 2.
   describe("erasure without the `type` keyword", () => {
+    it("keeps an import used only in an instantiation expression (`makeBox(Box<string>)`)", () => {
+      const edges = edgesBetween("instantiation.ts", "generic.ts");
+      expect(edges).toHaveLength(1);
+      expect(edges[0].is_type_only).toBe(0);
+    });
+
+    it("still erases the same node kind in an `implements` clause", () => {
+      const edges = edgesBetween("implementsOnly.ts", "generic.ts");
+      expect(edges).toHaveLength(1);
+      expect(edges[0].is_type_only).toBe(1);
+    });
+
     it("flags a plain `import { B }` used only as a type", () => {
       const edges = edgesBetween("erased.ts", "b.ts");
       expect(edges).toHaveLength(1);
@@ -349,6 +364,19 @@ describe("indexRepository: verbatimModuleSyntax (fixtures/verbatim-module-syntax
     expect(edges).toHaveLength(1);
     expect(edges[0].is_type_only).toBe(1);
   });
+
+  // Found by the emitted-JS oracle on directus: two `import { type X }` edges
+  // reported as erased that tsc keeps as side-effect imports.
+  it.each(["inlineTypeImport.ts", "inlineTypeExport.ts"])(
+    "keeps a runtime edge for %s, whose only name is inline `type` - the statement survives as a side-effect import",
+    (file) => {
+      const edges = edgesBetween(file, "values.ts");
+      expect(edges.map((e) => [e.imported_name, e.is_type_only])).toEqual([
+        ["Contract", 1],
+        [null, 0],
+      ]);
+    }
+  );
 });
 
 /**
@@ -413,5 +441,109 @@ describe("findTopLevelRequireCalls", () => {
 
   it("ignores non-literal arguments, extra arguments, and member calls like require.resolve", () => {
     expect(specifiersOf(`require(name); require("./a", 1); require.resolve("./b"); obj.require("./c");`)).toEqual([]);
+  });
+});
+
+/** Per-edge evidence (line, statement text, imported name) - what find_cycle_through_file cites per hop. */
+describe("indexRepository: edge line, statement and imported_name (fixtures/type-only-repo)", () => {
+  const db = openDb(":memory:");
+  indexRepository(db, join(__dirname, "../../fixtures/type-only-repo/tsconfig.json"));
+  const edgesBetween = (from: string, to: string) =>
+    db
+      .prepare(`SELECT * FROM edges WHERE from_file LIKE ? AND to_file LIKE ? ORDER BY imported_name`)
+      .all(`%/${from}`, `%/${to}`) as EdgeRow[];
+
+  it("records the import's line, text and name", () => {
+    const [edge] = edgesBetween("c.ts", "d.ts");
+    expect(edge.line).toBe(2);
+    expect(edge.statement).toBe(`import { d } from "./d";`);
+    expect(edge.imported_name).toBe("d");
+  });
+
+  it("gives both edges of one mixed statement the same line and text, each its own name", () => {
+    const edges = edgesBetween("mixed.ts", "a.ts");
+    expect(edges.map((e) => [e.imported_name, e.is_type_only])).toEqual([
+      ["A", 1],
+      ["aValue", 0],
+    ]);
+    expect(new Set(edges.map((e) => e.line))).toEqual(new Set([2]));
+    expect(edges[0].statement).toBe(`import { type A, aValue } from "./a";`);
+  });
+
+  it("cites the require() call itself, with no name", () => {
+    const [edge] = edgesBetween("bareRequire.ts", "values.ts");
+    expect(edge.statement).toBe(`require("./values")`);
+    expect(edge.line).toBe(7);
+    expect(edge.imported_name).toBeNull();
+  });
+});
+
+describe("statement text is collapsed onto one line and bounded", () => {
+  it("collapses a multi-line import list and truncates very long statements", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rie-stmt-"));
+    const long = Array.from({ length: 60 }, (_, i) => `n${i}`);
+    writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true }, include: ["*.ts"] }));
+    writeFileSync(join(dir, "lib.ts"), long.map((n) => `export const ${n} = 1;`).join("\n") + "\nexport const x = 1;\nexport const y = 2;\n");
+    writeFileSync(
+      join(dir, "user.ts"),
+      `import {\n  x,\n  y,\n} from "./lib";\nimport { ${long.join(", ")} } from "./lib";\nexport const s = x + y + ${long.join(" + ")};\n`
+    );
+    const db = openDb(":memory:");
+    indexRepository(db, join(dir, "tsconfig.json"));
+    const statements = (
+      db.prepare(`SELECT DISTINCT line, statement FROM edges ORDER BY line`).all() as { line: number; statement: string }[]
+    );
+    expect(statements[0]).toEqual({ line: 1, statement: `import { x, y, } from "./lib";` });
+    expect(statements[1].line).toBe(5);
+    expect(statements[1].statement.length).toBe(200);
+    expect(statements[1].statement.endsWith("…")).toBe(true);
+  });
+});
+
+describe("openDb migrates an index built before edge evidence existed", () => {
+  it("adds line/statement/imported_name as NULL to an old edges table", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rie-migrate-"));
+    const path = join(dir, "old.db");
+    const old = new Database(path);
+    old.exec(`CREATE TABLE edges (id INTEGER PRIMARY KEY, from_file TEXT NOT NULL, to_file TEXT NOT NULL,
+      to_symbol_id INTEGER, edge_type TEXT NOT NULL, is_type_only INTEGER NOT NULL DEFAULT 0);
+      INSERT INTO edges (from_file, to_file, edge_type) VALUES ('/r/a.ts', '/r/b.ts', 'imports');`);
+    old.close();
+
+    const db = openDb(path);
+    const row = db.prepare(`SELECT * FROM edges`).get() as EdgeRow;
+    expect(row).toMatchObject({ from_file: "/r/a.ts", line: null, statement: null, imported_name: null });
+    db.close();
+  });
+});
+
+/**
+ * A default binding and named bindings in one statement are judged separately.
+ * Both cases once hid a runtime edge; `tsc` (module: commonjs) emits
+ * `require("./m")` for each, checked before writing this test.
+ */
+describe("default + named imports in one statement", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rie-default-"));
+  writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true, module: "commonjs" }, include: ["*.ts"] }));
+  writeFileSync(join(dir, "m.ts"), "export default class Def {}\nexport const val = 1;\nexport interface Shape { x: number }\n");
+  writeFileSync(join(dir, "typeDefault.ts"), `import Def, { val } from "./m";\nexport let d: Def | null = null;\nexport const v = val;\n`);
+  writeFileSync(join(dir, "valueDefault.ts"), `import Def, { Shape } from "./m";\nexport const inst = new Def();\nexport let s: Shape | null = null;\n`);
+  writeFileSync(join(dir, "both.ts"), `import Def, * as ns from "./m";\nexport let d: Def | null = null;\nexport const v = ns.val;\n`);
+  const db = openDb(":memory:");
+  indexRepository(db, join(dir, "tsconfig.json"));
+  const edgesFrom = (file: string) =>
+    (db.prepare(`SELECT imported_name, is_type_only FROM edges WHERE from_file LIKE ? ORDER BY imported_name`).all(`%/${file}`) as
+      Pick<EdgeRow, "imported_name" | "is_type_only">[]).map((e) => [e.imported_name, e.is_type_only]);
+
+  it("a type-only default does not erase a value named import", () => {
+    expect(edgesFrom("typeDefault.ts")).toEqual([["default", 1], ["val", 0]]);
+  });
+
+  it("a value default is a runtime edge even when every named import is a type", () => {
+    expect(edgesFrom("valueDefault.ts")).toEqual([["Shape", 1], ["default", 0]]);
+  });
+
+  it("default + namespace get one edge each", () => {
+    expect(edgesFrom("both.ts")).toEqual([[null, 0], ["default", 1]]);
   });
 });

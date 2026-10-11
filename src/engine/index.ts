@@ -94,6 +94,18 @@ export interface DependencyPath {
    * exhaustive, and how large it was.
    */
   files_searched?: number;
+  /** "runtime" when only imports that survive compilation were followed (runtimeOnly). */
+  path_type: "runtime" | "runtime_and_type_only";
+  /**
+   * The import behind each step: hops[i] is chain[i] -> chain[i+1]. Present when the
+   * chain has 2+ files. In the default mode each hop says whether it is type_only.
+   */
+  hops?: CycleHop[];
+  /**
+   * runtimeOnly queries only, when no runtime path exists: whether one appears once
+   * erased imports count. The "no" half of a runtime-vs-type trap.
+   */
+  type_only_path_exists?: boolean;
   note?: string;          // why there's no chain: an end matched nothing, or the search came up empty
 }
 
@@ -121,7 +133,7 @@ export function findModule(db: Database.Database, name: string): FindModuleResul
     ...(similar.length > 0 && { similar_names: similar }),
     note:
       `No top-level declaration named "${name}" is indexed. Only top-level class/function/` +
-      `interface/type/const declarations are - methods, properties, enums, namespaces, ` +
+      `interface/type/const/enum declarations are - methods, properties, enum members, namespaces, ` +
       `non-const variables and locals are not, so this does NOT mean the name is absent from the repo.`,
   };
 }
@@ -286,7 +298,7 @@ export function findSymbolReferences(
   if (!result.symbol_indexed) {
     result.note =
       `"${symbol}" is not in the index. Only top-level declarations (class/function/` +
-      `interface/type/const) are indexed - methods, properties, and locals are not. ` +
+      `interface/type/const/enum) are indexed - methods, properties, enum members, and locals are not. ` +
       `An empty reference list here does NOT mean the name is unused.`;
   }
   return result;
@@ -305,15 +317,28 @@ function looksLikeFilePath(arg: string): boolean {
  * Each end is a symbol name OR a file path. Symbol-only ends made file-to-file
  * questions unanswerable - a barrel like `index.ts` declares nothing to name - so
  * an agent asked "does file A import file B?" had to fall back to grep.
+ *
+ * runtimeOnly follows only imports that survive compilation. Without it, trap tasks
+ * ("can each file reach the other at runtime?") cost ~1.4x the bash+madge arm: the
+ * agent got a chain that might run through erased imports and read files to check
+ * each hop.
  */
-export function dependencyPath(db: Database.Database, a: string, b: string): DependencyPath {
+export function dependencyPath(
+  db: Database.Database,
+  a: string,
+  b: string,
+  options: { runtimeOnly?: boolean; root?: string } = {}
+): DependencyPath {
+  const rel = relativizer(options.root);
+  const runtimeOnly = options.runtimeOnly ?? false;
+  const path_type = runtimeOnly ? "runtime" : "runtime_and_type_only";
   const notes: string[] = [];
   const endpoint = (arg: string): string[] => {
     if (!looksLikeFilePath(arg)) {
       const files = filesOfSymbol(db, arg);
       if (files.length === 0) {
         notes.push(
-          `"${arg}" is not an indexed symbol (only top-level class/function/interface/type/const ` +
+          `"${arg}" is not an indexed symbol (only top-level class/function/interface/type/const/enum ` +
             `declarations are), so no path was searched. Pass a file path instead.`
         );
       }
@@ -323,7 +348,7 @@ export function dependencyPath(db: Database.Database, a: string, b: string): Dep
     if (resolved) return [resolved];
     notes.push(
       candidates.length > 1
-        ? `"${arg}" matches ${candidates.length} indexed files - pass a longer path: ${candidates.join(", ")}`
+        ? `"${arg}" matches ${candidates.length} indexed files - pass a longer path: ${candidates.map(rel).join(", ")}`
         : `"${arg}" is not an indexed file.`
     );
     return [];
@@ -337,54 +362,74 @@ export function dependencyPath(db: Database.Database, a: string, b: string): Dep
   // file is the alphabetically first candidate - deterministic, unlike the
   // unordered LIMIT 1 this replaced, which picked by insertion order.
   const ambiguity: DependencyPath["ambiguity"] = {};
-  if (candidatesA.length > 1) ambiguity.symbol_a = { chosen: fileA, candidates: candidatesA };
-  if (candidatesB.length > 1) ambiguity.symbol_b = { chosen: fileB, candidates: candidatesB };
+  if (candidatesA.length > 1) ambiguity.symbol_a = { chosen: rel(fileA), candidates: candidatesA.map(rel) };
+  if (candidatesB.length > 1) ambiguity.symbol_b = { chosen: rel(fileB), candidates: candidatesB.map(rel) };
   const withAmbiguity = (result: DependencyPath): DependencyPath => ({
     ...result,
     ...((ambiguity.symbol_a || ambiguity.symbol_b) && { ambiguity }),
     ...(notes.length > 0 && { note: notes.join(" ") }),
   });
 
-  if (!fileA || !fileB) return withAmbiguity({ found: false, chain: [] });
-  if (fileA === fileB) return withAmbiguity({ found: true, chain: [fileA] });
+  if (!fileA || !fileB) return withAmbiguity({ found: false, chain: [], path_type });
+  if (fileA === fileB) return withAmbiguity({ found: true, chain: [rel(fileA)], path_type });
 
-  const neighborsOf = db.prepare(`SELECT DISTINCT to_file FROM edges WHERE from_file = ?`);
+  const found = shortestPath(db, fileA, fileB, runtimeOnly);
+  if (found.chain) {
+    return withAmbiguity({
+      found: true,
+      chain: found.chain.map(rel),
+      path_type,
+      hops: cycleHops(db, found.chain, !runtimeOnly, rel),
+    });
+  }
 
+  const result: DependencyPath = { found: false, chain: [], path_type, files_searched: found.searched };
+  if (runtimeOnly) result.type_only_path_exists = shortestPath(db, fileA, fileB, false).chain !== null;
+  result.note =
+    `No ${runtimeOnly ? "runtime " : ""}import path from ${rel(fileA)} to ${rel(fileB)}. The search was exhaustive: it followed every ` +
+    `static import and re-export (${runtimeOnly ? "type-only excluded - they are erased at compile time" : "type-only included"}) ` +
+    `from ${rel(fileA)} and reached ${found.searched} file(s), none of which is ${rel(fileB)}. Reading files will not find a path ` +
+    `this missed - only a dynamic import() or a require() inside a function would, and neither is an import edge.` +
+    (result.type_only_path_exists ? " A path does exist once type-only imports are counted, but it cannot run." : "");
+  return withAmbiguity(result);
+}
+
+/** BFS a shortest directed file chain from `from` to `to`; searched = files reached when there is none. */
+function shortestPath(
+  db: Database.Database,
+  from: string,
+  to: string,
+  runtimeOnly: boolean
+): { chain: string[] | null; searched: number } {
+  const neighborsOf = db.prepare(
+    runtimeOnly
+      ? `SELECT DISTINCT to_file FROM edges WHERE from_file = ? AND is_type_only = 0`
+      : `SELECT DISTINCT to_file FROM edges WHERE from_file = ?`
+  );
   const parent = new Map<string, string>();
-  const visited = new Set<string>([fileA]);
-  const queue: string[] = [fileA];
+  const visited = new Set<string>([from]);
+  const queue: string[] = [from];
 
   while (queue.length > 0) {
     const current = queue.shift()!;
-    const neighbors = neighborsOf.all(current) as { to_file: string }[];
-    for (const { to_file } of neighbors) {
+    for (const { to_file } of neighborsOf.all(current) as { to_file: string }[]) {
       if (visited.has(to_file)) continue;
       visited.add(to_file);
       parent.set(to_file, current);
 
-      if (to_file === fileB) {
-        const chain = [fileB];
-        let node = fileB;
-        while (node !== fileA) {
+      if (to_file === to) {
+        const chain = [to];
+        let node = to;
+        while (node !== from) {
           node = parent.get(node)!;
           chain.unshift(node);
         }
-        return withAmbiguity({ found: true, chain });
+        return { chain, searched: visited.size };
       }
       queue.push(to_file);
     }
   }
-
-  return withAmbiguity({
-    found: false,
-    chain: [],
-    files_searched: visited.size,
-    note:
-      `No import path from ${fileA} to ${fileB}. The search was exhaustive: it followed every ` +
-      `static import and re-export (type-only included) from ${fileA} and reached ${visited.size} ` +
-      `file(s), none of which is ${fileB}. Reading files will not find a path this missed - only a ` +
-      `dynamic import() or a require() inside a function would, and neither is an import edge.`,
-  });
+  return { chain: null, searched: visited.size };
 }
 
 export interface CircularDependency {
@@ -495,6 +540,259 @@ export function findCircularDependencies(
 
   // Largest tangle first; file list breaks ties so the output is deterministic.
   return cycles.sort((a, b) => b.files.length - a.files.length || a.files[0].localeCompare(b.files[0]));
+}
+
+/** Member lists are printed inline for groups up to this size; larger ones need include_files. */
+const INLINE_GROUP_FILES = 8;
+
+export interface CycleGroupSummary {
+  size: number;
+  /** One shortest cycle through the group, first and last entries the same file. */
+  example_cycle: string[];
+  /** Every member, sorted - present for small groups, or all groups with includeFiles. */
+  files?: string[];
+}
+
+export interface CircularDependencyReport {
+  cycle_type: "runtime" | "runtime_and_type_only";
+  /** Largest group first. Empty = no cycles of this type. */
+  groups: CycleGroupSummary[];
+  files_in_cycles: number;
+  note?: string;
+}
+
+export interface CircularDependencyReportOptions extends CircularDependencyOptions {
+  /** List members of every group, not just groups of <= INLINE_GROUP_FILES files. */
+  includeFiles?: boolean;
+  /** Paths under this directory are reported relative to it (the MCP server passes the tsconfig's dir). */
+  root?: string;
+}
+
+/**
+ * The MCP-facing form of findCircularDependencies: same groups, compact output.
+ * The full form (absolute paths, every member of every group) measured ~25K chars
+ * on directus - 5 groups, one of 157 files - and agents called it in 50/50 runs,
+ * so it sat in context and was re-read on every later turn; the rie arm spent
+ * ~1.6x the baseline's tokens per correct answer. It also didn't answer the
+ * question those tasks asked ("a loop through file X": the example covers one
+ * member), so agents grepped anyway. Here: relative paths, large groups
+ * summarized, and a pointer to findCycleThroughFile for the per-file question.
+ */
+export function circularDependencyReport(
+  db: Database.Database,
+  options: CircularDependencyReportOptions = {}
+): CircularDependencyReport {
+  const rel = relativizer(options.root);
+  const cycles = findCircularDependencies(db, options);
+  const groups = cycles.map((c): CycleGroupSummary => ({
+    size: c.files.length,
+    example_cycle: c.example_cycle.map(rel),
+    ...((options.includeFiles || c.files.length <= INLINE_GROUP_FILES) && { files: c.files.map(rel) }),
+  }));
+  const report: CircularDependencyReport = {
+    cycle_type: options.includeTypeOnly ? "runtime_and_type_only" : "runtime",
+    groups,
+    files_in_cycles: groups.reduce((n, g) => n + g.size, 0),
+  };
+  const notes: string[] = [];
+  if (groups.some((g) => !g.files)) {
+    notes.push(`Member lists are omitted for groups over ${INLINE_GROUP_FILES} files (pass include_files to list them).`);
+  }
+  if (groups.length > 0) {
+    notes.push(
+      "example_cycle is one loop per group, not a loop through any particular file - " +
+        "for a specific file, call find_cycle_through_file: it returns the shortest loop through that file, or proves there is none."
+    );
+  }
+  if (notes.length > 0) report.note = notes.join(" ");
+  return report;
+}
+
+export interface CycleThroughFile {
+  /** false = the path matched no indexed file (see note). */
+  file_indexed: boolean;
+  resolved_path: string | null;
+  cycle_type: "runtime" | "runtime_and_type_only";
+  in_cycle: boolean;
+  /** Shortest import loop through the file, starting and ending with it; [] when none. */
+  cycle: string[];
+  /** Files on the loop (cycle.length - 1), 0 when none. */
+  loop_length: number;
+  /** The import behind each step of the loop: hops[i] is cycle[i] -> cycle[i+1]. Present when in_cycle. */
+  hops?: CycleHop[];
+  /** Set when in_cycle is false: files reachable from this one, all checked. */
+  files_searched?: number;
+  /**
+   * Runtime queries only, when no runtime loop exists: whether one appears once
+   * erased (type-only) imports count. Separates "genuinely acyclic" from "only a
+   * type-level cycle" - the distinction trap tasks turn on.
+   */
+  type_only_cycle_exists?: boolean;
+  note?: string;
+}
+
+export interface CycleHop {
+  /** "file:line" of the statement that creates this step (file only, for an index built before lines were recorded). */
+  at: string;
+  /** That statement's text, whitespace-collapsed. */
+  statement: string | null;
+  /**
+   * Names this statement imports that survive compilation - the checker's verdict,
+   * which catches what the statement's text can't show: a plain `import { A }`
+   * whose A is only ever used as a type is erased. Omitted for statements that
+   * name nothing (namespace/default/side-effect imports, `export *`, require).
+   */
+  runtime_names?: string[];
+  /** Only with includeTypeOnly: true when this step exists only through erased imports. */
+  type_only?: boolean;
+}
+
+/**
+ * find_cycle_through_file(file): the shortest import loop that starts and ends at
+ * this file (BFS over outgoing edges until one leads back). Any such loop lies
+ * inside the file's SCC, so this is exactly "is this file in a cycle, and via
+ * which chain" - the question the directus cycle tasks asked, which
+ * find_circular_dependencies' one-example-per-group output could not answer.
+ */
+export function findCycleThroughFile(
+  db: Database.Database,
+  filePath: string,
+  options: { includeTypeOnly?: boolean; root?: string } = {}
+): CycleThroughFile {
+  const rel = relativizer(options.root);
+  const cycle_type = options.includeTypeOnly ? "runtime_and_type_only" : "runtime";
+  const { resolved, candidates } = resolveIndexedPath(db, filePath);
+  if (!resolved) {
+    return {
+      file_indexed: false,
+      resolved_path: null,
+      cycle_type,
+      in_cycle: false,
+      cycle: [],
+      loop_length: 0,
+      note:
+        candidates.length > 1
+          ? `"${filePath}" matches ${candidates.length} indexed files - give a longer path. Candidates: ${candidates.map(rel).join(", ")}`
+          : `"${filePath}" is not in the index (not a .ts/.tsx file under the indexed tsconfig, or the index is stale - try reindex).`,
+    };
+  }
+
+  const found = shortestLoopFrom(db, resolved, options.includeTypeOnly ?? false);
+  if (found.cycle) {
+    return {
+      file_indexed: true,
+      resolved_path: rel(resolved),
+      cycle_type,
+      in_cycle: true,
+      cycle: found.cycle.map(rel),
+      loop_length: found.cycle.length - 1,
+      hops: cycleHops(db, found.cycle, options.includeTypeOnly ?? false, rel),
+    };
+  }
+
+  const result: CycleThroughFile = {
+    file_indexed: true,
+    resolved_path: rel(resolved),
+    cycle_type,
+    in_cycle: false,
+    cycle: [],
+    loop_length: 0,
+    files_searched: found.searched,
+  };
+  if (!options.includeTypeOnly) {
+    result.type_only_cycle_exists = shortestLoopFrom(db, resolved, true).cycle !== null;
+  }
+  result.note =
+    `No ${options.includeTypeOnly ? "" : "runtime "}import path leads from ${rel(resolved)} back to itself. ` +
+    `The search was exhaustive over the ${found.searched} file(s) it transitively imports` +
+    (options.includeTypeOnly ? "" : " (type-only imports excluded - they are erased at compile time)") +
+    `.` +
+    (result.type_only_cycle_exists ? " A loop does exist once type-only imports are counted, but it cannot run." : "");
+  return result;
+}
+
+/**
+ * The evidence for each step of a loop or path. Benchmark agents given only the file chain
+ * grepped every hop (all 50 directus runs did) to confirm it was a real, non-type
+ * import; this hands them the statement and the checker's runtime verdict instead.
+ * When a pair is joined by several statements, the first runtime one is cited.
+ */
+function cycleHops(
+  db: Database.Database,
+  cycle: string[],
+  includeTypeOnly: boolean,
+  rel: (p: string) => string
+): CycleHop[] {
+  const rowsOf = db.prepare(
+    `SELECT line, statement, is_type_only, imported_name AS name
+       FROM edges
+      WHERE from_file = ? AND to_file = ?${includeTypeOnly ? "" : " AND is_type_only = 0"}
+      ORDER BY is_type_only, line`
+  );
+  const hops: CycleHop[] = [];
+  for (let i = 0; i + 1 < cycle.length; i++) {
+    const rows = rowsOf.all(cycle[i], cycle[i + 1]) as {
+      line: number | null;
+      statement: string | null;
+      is_type_only: number;
+      name: string | null;
+    }[];
+    const first = rows[0];
+    const sameStatement = rows.filter((r) => r.line === first.line);
+    const names = [
+      ...new Set(sameStatement.filter((r) => !r.is_type_only && r.name !== null).map((r) => r.name!)),
+    ];
+    hops.push({
+      at: first.line === null ? rel(cycle[i]) : `${rel(cycle[i])}:${first.line}`,
+      statement: first.statement,
+      ...(names.length > 0 && { runtime_names: names }),
+      ...(includeTypeOnly && { type_only: first.is_type_only === 1 }),
+    });
+  }
+  return hops;
+}
+
+/** BFS from `start` over outgoing edges until one returns to it. */
+function shortestLoopFrom(
+  db: Database.Database,
+  start: string,
+  includeTypeOnly: boolean
+): { cycle: string[] | null; searched: number } {
+  const neighborsOf = db.prepare(
+    includeTypeOnly
+      ? `SELECT DISTINCT to_file FROM edges WHERE from_file = ?`
+      : `SELECT DISTINCT to_file FROM edges WHERE from_file = ? AND is_type_only = 0`
+  );
+  const parent = new Map<string, string>();
+  const visited = new Set<string>([start]);
+  const queue: string[] = [start];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const { to_file } of neighborsOf.all(current) as { to_file: string }[]) {
+      if (to_file === start) {
+        const cycle = [current];
+        let node = current;
+        while (node !== start) {
+          node = parent.get(node)!;
+          cycle.unshift(node);
+        }
+        return { cycle: [...cycle, start], searched: visited.size };
+      }
+      if (visited.has(to_file)) continue;
+      visited.add(to_file);
+      parent.set(to_file, current);
+      queue.push(to_file);
+    }
+  }
+  return { cycle: null, searched: visited.size };
+}
+
+/** Path -> path relative to root when it lies under root (case-insensitive, like resolveIndexedPath); identity without a root. */
+function relativizer(root: string | undefined): (path: string) => string {
+  if (!root) return (p) => p;
+  const prefix = root.replace(/\\/g, "/").replace(/\/+$/, "") + "/";
+  const lowerPrefix = prefix.toLowerCase();
+  return (p) => (p.toLowerCase().startsWith(lowerPrefix) ? p.slice(prefix.length) : p);
 }
 
 /** BFS a shortest path from `start` back to itself, never leaving the component. */

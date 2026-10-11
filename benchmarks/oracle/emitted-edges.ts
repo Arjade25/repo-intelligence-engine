@@ -46,6 +46,13 @@ export interface SourceEdge extends EmittedEdge {
 export interface EmittedEdgesResult {
   edges: EmittedEdge[];
   sourceEdges: SourceEdge[];
+  /**
+   * Relative or `paths`-alias specifiers that resolved to nothing. Non-empty means
+   * the graph is missing edges - on nest, broken aliases hid 556 imports and made
+   * the repo look far less tangled than it is. Anything screening a repo must
+   * check this before trusting a low cycle count.
+   */
+  unresolvedInternal: { from: string; specifier: string }[];
   fileCount: number;
   rootDir: string;
   compilerOptions: ts.CompilerOptions;
@@ -96,9 +103,29 @@ export function computeEmittedEdges(tsconfigPath: string): EmittedEdgesResult {
     return normalizePath(resolved.resolvedModule.resolvedFileName);
   };
 
+  const unresolvedInternal: { from: string; specifier: string }[] = [];
+  const aliasKeys = Object.keys(options.paths ?? {});
+  // Bundler asset imports (`./logo.svg`, `./icon.svg?react`, `./x.css`) are not
+  // modules TypeScript resolves, and can't sit on an import cycle - don't flag them.
+  // Any `?query` specifier is a bundler loader (`./x.js?raw`), never a module import.
+  const isAsset = (spec: string) =>
+    spec.includes("?") ||
+    /\.(svg|png|jpe?g|gif|webp|avif|ico|css|pcss|postcss|scss|sass|less|woff2?|ttf|otf|eot|mp3|mp4|ogg|wav|webm|wasm|html|txt|md|vert|frag|glsl|wgsl)$/i.test(
+      spec.replace(/[?#].*$/, "")
+    );
+  const looksInternal = (spec: string) =>
+    !isAsset(spec) &&
+    (spec.startsWith(".") ||
+      aliasKeys.some((k) => (k.includes("*") ? spec.startsWith(k.slice(0, k.indexOf("*"))) : spec === k)));
+
   for (const sourceFile of sourceFiles) {
     const from = normalizePath(sourceFile.fileName);
-    for (const { specifier, kind } of collectSourceSpecifiers(sourceFile)) {
+    for (const { specifier, kind, node } of collectSourceSpecifiers(sourceFile)) {
+      // Mode-aware, like the compiler: a default (CJS-mode) resolveModuleName
+      // call succeeds on ESM-only failures such as nest's directory aliases.
+      const mode = ts.getModeForUsageLocation(sourceFile, node, options);
+      const resolvedInMode = ts.resolveModuleName(specifier, sourceFile.fileName, options, host, undefined, undefined, mode);
+      if (!resolvedInMode.resolvedModule && looksInternal(specifier)) unresolvedInternal.push({ from, specifier });
       const to = resolve(specifier, sourceFile.fileName);
       if (to) sourceEdges.push({ from, to, specifier, kind });
     }
@@ -134,6 +161,7 @@ export function computeEmittedEdges(tsconfigPath: string): EmittedEdgesResult {
   return {
     edges,
     sourceEdges,
+    unresolvedInternal,
     fileCount: sourceFiles.length,
     rootDir: normalizePath(basePath),
     compilerOptions: parsed.options,
@@ -142,8 +170,10 @@ export function computeEmittedEdges(tsconfigPath: string): EmittedEdgesResult {
 
 /** Every static module reference in the source, erased or not. Dynamic import() is
  *  excluded here for the same reason it's excluded from the emitted scan. */
-function collectSourceSpecifiers(sourceFile: ts.SourceFile): { specifier: string; kind: SourceEdge["kind"] }[] {
-  const out: { specifier: string; kind: SourceEdge["kind"] }[] = [];
+function collectSourceSpecifiers(
+  sourceFile: ts.SourceFile
+): { specifier: string; kind: SourceEdge["kind"]; node: ts.StringLiteral }[] {
+  const out: { specifier: string; kind: SourceEdge["kind"]; node: ts.StringLiteral }[] = [];
   for (const stmt of sourceFile.statements) {
     let spec: ts.Expression | undefined;
     let kind: SourceEdge["kind"] = "import";
@@ -155,7 +185,7 @@ function collectSourceSpecifiers(sourceFile: ts.SourceFile): { specifier: string
     } else if (ts.isImportEqualsDeclaration(stmt) && ts.isExternalModuleReference(stmt.moduleReference)) {
       spec = stmt.moduleReference.expression;
     }
-    if (spec && ts.isStringLiteral(spec)) out.push({ specifier: spec.text, kind });
+    if (spec && ts.isStringLiteral(spec)) out.push({ specifier: spec.text, kind, node: spec });
   }
   return out;
 }

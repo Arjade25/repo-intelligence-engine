@@ -165,6 +165,15 @@ function isValuePosition(node: ts.Identifier): boolean {
     // own `extends`, are erased. All three are ExpressionWithTypeArguments,
     // which `isTypeNode` reports as a type, so this has to be tested first.
     if (isClassExtendsExpression(parent, current)) return true;
+    // An instantiation expression (`Dialog<Props>` passed as a value, TS 4.7+) is
+    // the same node kind outside any heritage clause: the expression is emitted,
+    // only the type arguments erase. Found by the oracle on element-web, where a
+    // default import used only this way was reported as erased.
+    if (isInstantiationExpression(parent, current)) {
+      current = parent;
+      parent = parent.parent;
+      continue;
+    }
     if (ts.isTypeNode(parent) || ts.isTypeParameterDeclaration(parent)) return false;
     current = parent;
     parent = parent.parent;
@@ -266,6 +275,14 @@ function resolvesToValue(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
 
 function hasDecorator(node: ts.Node): boolean {
   return ts.canHaveDecorators(node) && (ts.getDecorators(node)?.length ?? 0) > 0;
+}
+
+function isInstantiationExpression(node: ts.Node, child: ts.Node): boolean {
+  return (
+    ts.isExpressionWithTypeArguments(node) &&
+    node.expression === child &&
+    (node.parent === undefined || !ts.isHeritageClause(node.parent))
+  );
 }
 
 function isClassExtendsExpression(node: ts.Node, child: ts.Node): boolean {

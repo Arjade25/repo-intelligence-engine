@@ -26,6 +26,11 @@ describe("computeEmittedEdges (fixtures/type-only-repo)", () => {
     expect(fileCount).toBeGreaterThanOrEqual(15);
   });
 
+  it("keeps an import used only in an instantiation expression, erases one used only in `implements`", () => {
+    expect(hasEdge(edges, "instantiation.ts", "generic.ts")).toBe(true);
+    expect(hasEdge(edges, "implementsOnly.ts", "generic.ts")).toBe(false);
+  });
+
   it("has no edge for a whole-clause `import type`", () => {
     expect(hasEdge(edges, "a.ts", "b.ts")).toBe(false);
   });
@@ -103,6 +108,11 @@ describe("computeEmittedEdges (fixtures/verbatim-module-syntax-repo)", () => {
   it("still erases an explicit `import type` - the one thing that does under this flag", () => {
     expect(hasEdge(edges, "explicitErased.ts", "values.ts")).toBe(false);
   });
+
+  it("keeps a statement whose names are all inline `type` - emitted as `import {} from` / `export {} from`", () => {
+    expect(hasEdge(edges, "inlineTypeImport.ts", "values.ts")).toBe(true);
+    expect(hasEdge(edges, "inlineTypeExport.ts", "values.ts")).toBe(true);
+  });
 });
 
 describe("computeEmittedEdges (fixtures/decorator-metadata-repo)", () => {
@@ -148,6 +158,18 @@ describe("computeEmittedEdges (fixtures/const-enum-repo)", () => {
       expect(from).toEqual(runtimeFrom);
     });
   }
+});
+
+describe("computeEmittedEdges: unresolved internal imports", () => {
+  it("flags the ESM directory alias and the missing relative import, not the file alias or node:fs", () => {
+    // The same two src/indexer/resolution.test.ts finds, computed independently.
+    const { unresolvedInternal } = computeEmittedEdges(join(FIXTURES, "esm-alias-repo/tsconfig.json"));
+    expect(unresolvedInternal.map((u) => u.specifier).sort()).toEqual(["./missing.js", "@dir"]);
+  });
+
+  it("is empty when every internal import resolves", () => {
+    expect(computeEmittedEdges(join(FIXTURES, "sample-repo/tsconfig.json")).unresolvedInternal).toEqual([]);
+  });
 });
 
 describe("computeEmittedEdges (fixtures/sample-repo)", () => {

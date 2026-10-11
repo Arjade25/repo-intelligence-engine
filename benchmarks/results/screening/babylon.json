@@ -1,0 +1,18 @@
+{
+  "tsconfig": "benchmarks/candidates/babylon/tsconfig.rie.json",
+  "files": 2673,
+  "unresolved_internal": 433,
+  "long_threshold": 6,
+  "source_groups": [
+    2260,
+    2,
+    2
+  ],
+  "runtime_groups": [],
+  "overall": {
+    "members": 0,
+    "median_loop": 0,
+    "max_loop": 0,
+    "long_members": 0
+  }
+}

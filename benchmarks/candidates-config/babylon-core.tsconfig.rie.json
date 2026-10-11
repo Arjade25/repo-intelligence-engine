@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "module": "ES2020",
+    "target": "es2021",
+    "strict": true,
+    "strictNullChecks": true,
+    "useDefineForClassFields": false,
+    "preserveConstEnums": true,
+    "jsx": "react-jsx",
+    "lib": ["es5", "dom", "es2017", "es2020.bigint", "es2022.error", "es2022.array", "es2022.string", "esnext.decorators"],
+    "experimentalDecorators": true,
+    "skipLibCheck": true,
+    "types": [],
+    "paths": {
+      "core/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["**/test/**", "**/*.test.ts", "**/*.d.ts"]
+}

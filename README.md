@@ -8,20 +8,23 @@ AI coding agents start every session with zero structural memory of a repo. Answ
 
 ## What it does
 
-The engine parses a TypeScript repo with the **TypeScript Compiler API** and stores a structural model in **SQLite**. Six queries run over that index:
+The engine parses a TypeScript repo with the **TypeScript Compiler API** and stores a structural model in **SQLite**. Six queries, plus a full rebuild, run over that index:
 
 | Query | Answers |
 |---|---|
 | `find_module(name)` | Which file(s) define this symbol? |
 | `find_related_files(file)` | What does this file import, and what imports it? |
 | `find_symbol_references(symbol)` | Everywhere this symbol is used |
-| `dependency_path(a, b)` | Is there an import path from A to B, and what is it? Each end can be a symbol name or a file path |
-| `find_circular_dependencies()` | Which files form runtime import cycles? (Pass `include_type_only` to count erased imports too) |
+| `dependency_path(a, b)` | Is there an import path from A to B, and what is it? Each end can be a symbol name or a file path. Each hop cites its import line and says whether it is type-only; pass `runtime_only` to follow only imports that survive compilation |
+| `find_circular_dependencies()` | Which files form runtime import cycles? Compact: group sizes + one example each (pass `include_files` for full member lists, `include_type_only` to count erased imports too) |
+| `find_cycle_through_file(file)` | Is this file in a runtime cycle, and what is the shortest loop through it? Exhaustive when the answer is no |
 | `reindex()` | Rebuild the whole index, and report any internal imports that failed to resolve |
 
 The `engine/` functions are callable directly (CLI, tests) — the engine is the product. It also supports Claude Code and any other MCP-compatible client through an integrated MCP server.
 
 Every path-taking query accepts absolute or repo-relative paths, with either slash style, matched case-insensitively. When a path or name matches nothing, every query says so explicitly (`file_indexed: false`, `symbol_indexed: false`, or a `note`) rather than returning a bare empty list. Agents treat an empty list as "no results" and fall back to grep, which the benchmark caught happening (see † below). `find_module` was the last to return a bare `[]`; on a miss it now also lists `similar_names` that match ignoring case. When `dependency_path` finds no path, it says how many files the search reached (`files_searched`) and that the search was exhaustive. The MCP `reindex` tool takes no arguments: every rebuild covers the whole repo.
+
+A symbol is a top-level `class`, `function`, `interface`, `type`, `const` or `enum` declaration. Methods, properties, enum members, namespaces, non-`const` variables and locals are not indexed, and a miss on one of those says so rather than implying the name is unused. Enums were added late. Before that, `find_symbol_references("HttpStatus")` on nest answered "not in the index", which reads as unused; it now returns 141 references across 38 files. A `const enum` is indexed the same way: its members are inlined at emit, but every use is still a reference the type checker resolves.
 
 ## Architecture
 
@@ -44,7 +47,8 @@ Every path-taking query accepts absolute or repo-relative paths, with either sla
   ┌───────────────────┐   pure functions over the index —
   │   Query Engine    │   find_module, find_related_files,
   │  src/engine/      │   find_symbol_references, dependency_path,
-  └───────────────────┘   find_circular_dependencies, reindex
+  └───────────────────┘   find_circular_dependencies,
+                          find_cycle_through_file, reindex
           │
           ▼
   ┌───────────────────┐   thin adapter: parse args → call engine.
@@ -67,6 +71,7 @@ Every measurement below runs Claude Code in headless mode under two arms:
 
 - **baseline**: built-in tools only (Read/Grep/Glob)
 - **assisted** (called `rie` in the generated-task harness): the same tools **plus** this engine's MCP server
+- **bash-madge** (long-loop cycle tasks only): the same tools **plus** Bash, with [madge](https://github.com/pahen/madge), the common circular-dependency CLI, on PATH. This is what a developer with a shell would reach for, so it is the fair competitor. See [benchmarks/tools.json](benchmarks/tools.json).
 
 Protocol: a fresh session for every run, so no run sees another's context. 5 runs per arm per task, with medians reported. Metrics are machine-counted from session transcripts (`tool_use` blocks and per-turn token usage), never hand-tallied. The only difference between the arms is `--mcp-config`; both get the same built-in toolset.
 
@@ -76,7 +81,7 @@ There are two harnesses. They answer different questions:
 |---|---|---|
 | Tasks | Hand-written, with pre-registered oracle answers verified by independent grep | Generated from compiler ground truth (`npm run taskgen`), never from RIE's index |
 | Correctness | `located_oracle` substring check, plus reading transcripts by hand | Graded: the last JSON block of each answer is scored by the task's validator |
-| Targets | TypeORM, nest | nest |
+| Targets | TypeORM, nest | nest, directus, element-web |
 | Raw data | `benchmarks/results/*.json` | `benchmarks/results/harness/*.json`, with the exact task set alongside as `*.tasks.json` |
 
 ### At a glance
@@ -89,10 +94,14 @@ There are two harnesses. They answer different questions:
 | nest · hand-written (4 tasks) | 4 × 5 | see [below](#hand-written-tasks-nest) | | 2 wins (one ~107×), 2 losses |
 | nest · generated cycle / trap / impact | 27 × 5 | 133/135 correct, 101.5K tokens per correct | 134/135, 112.7K | Tie on accuracy; assisted **~11% more expensive** |
 | nest · generated dependency paths | 10 × 5 | 50/50 correct, 345K tokens per correct | **50/50, 164K** | ~2.1× cheaper, half the tool calls |
+| directus · generated cycle tracing (long loops) | 10 × 5 | 50/50, $0.157 / 36 s per session | **50/50, $0.039 / 15 s** | ~4× cheaper in dollars, ~2.4× faster |
+| element-web · generated cycle tracing (long loops) | 10 × 5 | 50/50, $0.374 / 81 s per session | **50/50, $0.045 / 16 s** | ~8× cheaper in dollars, ~5× faster |
+| directus · cycle tracing vs **Bash + madge** | 10 × 5 | 50/50, $0.099 / 69 s per session | **50/50, $0.037 / 13 s** | ~2.7× cheaper in dollars, ~5× faster than the fair competitor |
+| element-web · cycle tracing vs **Bash + madge** | 10 × 5 | 49/50, $0.117 / 78 s per session | **50/50, $0.047 / 14 s** | ~2.5× cheaper in dollars, ~5.6× faster |
 
 ### Hand-written tasks: TypeORM
 
-Measured against [TypeORM](https://github.com/typeorm/typeorm) @ `04ff4dae`: 496 source files, 1,108 indexed symbols, 2,750 import edges. Nine fixed navigation tasks (`benchmarks/tasks.json`). These counts were re-verified on 2026-09-28 by re-indexing with the now-committed `benchmarks/tsconfig.rie.typeorm.json`. That also gives 1,565 erased edges, 189 star re-exports and 13,517 references, 0 unresolved imports, and 0 runtime cycles (227 + 2 files with type-only edges counted). The benchmark runs below used that index. Since then, the indexer also records bare `require()` calls and matches the compiler's erasure in three more cases (see [Checking it edge by edge](#checking-it-edge-by-edge)). The current index has 2,751 edges, 1,568 of them erased; the symbols, star re-exports and cycle results are unchanged.
+Measured against [TypeORM](https://github.com/typeorm/typeorm) @ `04ff4dae`: 496 source files, 1,108 indexed symbols, 2,750 import edges. Nine fixed navigation tasks (`benchmarks/tasks.json`). These counts were re-verified on 2026-09-28 by re-indexing with the now-committed `benchmarks/tsconfig.rie.typeorm.json`. That also gives 1,565 erased edges, 189 star re-exports and 13,517 references, 0 unresolved imports, and 0 runtime cycles (227 + 2 files with type-only edges counted). The benchmark runs below used that index. Since then, the indexer also records bare `require()` calls and matches the compiler's erasure in three more cases (see [Checking it edge by edge](#checking-it-edge-by-edge)). The current index has 2,751 edges, 1,568 of them erased; the star re-exports and cycle results are unchanged. Indexing enums as symbols (see [What it does](#what-it-does)) later added 1 symbol and raised references to 13,655; edges are unaffected.
 
 #### Where the engine does *not* help
 
@@ -134,7 +143,7 @@ Baseline cost varies widely from run to run (15–24 calls on the path task, 14�
 
 ### Hand-written tasks: nest
 
-Measured against [nestjs/nest](https://github.com/nestjs/nest) @ `40d07dc6`: 664 non-spec source files, 1,473 indexed symbols, 3,442 file-level edges. Four tasks (`benchmarks/tasks-nest.json`), 5 runs per arm. Medians:
+Measured against [nestjs/nest](https://github.com/nestjs/nest) @ `40d07dc6`: 664 non-spec source files, 1,473 indexed symbols, 3,442 file-level edges. (Indexing enums later raised the symbol count to 1,507; the edges are unchanged.) Four tasks (`benchmarks/tasks-nest.json`), 5 runs per arm. Medians:
 
 | Task | Baseline (calls / tokens) | Assisted (calls / tokens) | |
 |---|---|---|---|
@@ -179,6 +188,58 @@ Both arms answered all 100 runs correctly. The assisted arm got there with ~2.1�
 
 The saving is concentrated where the claim predicts. When a path exists, `dependency_path` returns the whole 12–14-hop chain in one query: ~3.2× fewer tokens by median, with 25 RIE calls across 25 runs. Proving that *no* path exists saved much less, ~1.1× by median. In those runs the agent did not accept `found: false` on its own. It followed up with 38 `find_related_files` calls and 30 file reads (against 7 reads when a path existed), walking the import graph by hand to confirm the negative. A `found: false` result now carries `files_searched` and a note saying the search was exhaustive. Whether that changes agent behavior hasn't been measured yet: the numbers above predate it.
 
+### Generated, graded tasks: long-loop repos (directus, element-web)
+
+nest's runtime cycles are two 4-file groups, too short to test the claim that long loops are where reading files gets expensive. `npm run screen` ranks candidate repos by the shortest runtime loop through each cycle member. Two came out with long loops, and both were **chosen for that reason**, so everything below is conditional on long loops:
+- **directus** (`api/`, 837 files): a 157-file runtime group, where 57% of members have no loop shorter than 6 files.
+- **element-web** (`apps/web`): a 115-file group, with loops up to 17 files.
+
+Each task names a file and asks for a runtime import chain that leads back to it (shortest loops of 6–12 files). The validator accepts any valid loop. Model `claude-opus-5-5`, 5 runs per arm per task, arm order rotated.
+
+| Run | Arm | Correct | Cost per session | Median wall time | Median calls | Tokens per correct | Median tokens [IQR] |
+|---|---|---|---|---|---|---|---|
+| directus, 09-29 (first version) | baseline | 50/50 | $0.147 | 39 s | 10 | 223K | 188K [150–249K] |
+| | rie | 50/50 | $0.228 | 36 s | 10 | 373K | 357K [299–397K] |
+| directus, 09-30 (`find_cycle_through_file`) | baseline | 50/50 | $0.157 | 36 s | 11 | 235K | 196K [162–282K] |
+| | rie | 50/50 | $0.080 | 24 s | 5.5 | 107K | 109K [78–129K] |
+| directus, 09-30 (+ per-hop evidence) | rie | 50/50 | **$0.039** | **15 s** | **1** | 30K | 26K [26–28K] |
+| element-web, 09-30 | baseline | 50/50 | $0.374 | 81 s | 21.5 | 841K | 628K [366K–1.2M] |
+| | rie | 50/50 | **$0.045** | **16 s** | **1** | 27K | 28K [18–29K] |
+| directus, 10-01 (vs a shell) | bash-madge | 50/50 | $0.099 | 69 s | 4 | 98K | 92K [69–110K] |
+| | rie | 50/50 | **$0.037** | **13 s** | **1** | 27K | 26K [26–27K] |
+| element-web, 10-06 (vs a shell) | bash-madge | 49/50 | $0.117 | 78 s | 4 | 102K | 98K [68–124K] |
+| | rie | 50/50 | **$0.047** | **14 s** | **1** | 30K | 28K [27–36K] |
+
+Result files are in `benchmarks/results/harness/`, named `directus-2026-09-29T10-12-50-834Z`, `directus-2026-09-30T07-10-55-765Z`, `directus-2026-09-30T10-30-32-403Z`, `element-web-2026-09-30T11-27-14-790Z`, `directus-2026-10-01T06-18-36-796Z` and `element-web-2026-10-06T06-17-30-224Z`. The madge runs used Claude Code 2.1.285 (directus) and 2.1.289 (element-web), with the rie arm interleaved in each. The earlier runs used 2.1.283–2.1.284.
+
+**The first version lost.** On 09-29 the engine cost ~1.6× the baseline. Its cycle report ran to ~25K characters and stayed in context for the rest of the session. It also couldn't answer "a loop through file X", so agents grepped anyway. [Circular dependency detection](#circular-dependency-detection) describes the fixes, and each one was re-measured:
+- `find_cycle_through_file` brought it to ~2× cheaper.
+- Adding each hop's import statement brought it to ~4× cheaper. After that, 40 of 50 sessions answered with that single tool call.
+
+The final directus rie run reuses that morning's baseline, which has the same model, CLI and tasks, and the baseline was stable across days.
+
+**element-web had longer loops, and the gap grew.** Baseline cost rose with loop length: the median ranged from 251K tokens on the easiest task to 1.9M on the hardest, and one session needed 38 tool calls. The engine's answer took one call on every task, at 17–49K tokens. It was cheaper on all 10 tasks.
+
+**Against a shell and madge, the margin narrows but holds.** The Read/Grep baseline above is a weak competitor: with no shell, it can't run the tool a developer would use. The bash-madge arm adds Bash and madge 8.0.0, configured to skip `import type`, and a one-line system note saying it's available. That note does the job MCP tool descriptions do for the rie arm. Its agents used madge well:
+1. They exported madge's whole import graph with `madge --json`.
+2. They wrote a short Node script to find the loop through the target file.
+3. They grepped each hop to confirm it.
+
+That is 4 calls at $0.099 per session, cheaper than the Read/Grep baseline's $0.157, but the slowest arm at 69 s, because each madge pass over 837 files takes tens of seconds. The engine was ~2.7× cheaper and ~5× faster, at equal accuracy. Answer quality also differed slightly: 15 of 50 madge answers gave a longer loop than necessary, and the engine always gave the shortest.
+
+madge is also not a runtime-cycle oracle. It has no type checker, so a plain `import { T }` used only as a type still counts as an edge. Offline on directus, it placed 40 files in cycles that the emit-verified runtime graph does not have. The agents' habit of checking each hop kept that from producing a wrong answer. The rie arm ran in the same session, interleaved, so the CLI version change between runs doesn't affect this comparison.
+
+**On element-web the result held: ~2.5× cheaper and ~5.6× faster.** madge's cost didn't grow with loop length. It stayed at $0.07–0.17 per task for loops of 6 to 12 files, because exporting the whole graph and searching it costs about the same however long the loop is. That's why it gets far closer to the engine than the Read/Grep baseline does, which climbed past $1 on the longest loops. 20 of its 50 answers were longer than the shortest loop.
+
+The one wrong madge answer is partly the task's fault. The agent followed a dynamic `import("../stores/room-list-v3/RoomListStoreV3")` in `StoresApi.ts`. element-web's developers added it there, by their own comment, "to prevent circular dependency issues": it loads lazily, after the importing file has finished loading, so it isn't a load-time cycle, and the grader is right to reject it. But the cycle-task prompt never said dynamic `import()` calls don't count, while the path-task prompt did. madge includes them in its graph, so the ambiguity worked against it. Scored strictly, madge got 49/50, or 50/50 if this ambiguous task is excluded. Newly generated cycle and trap prompts now state the rule. The grader also used to blame the wrong step here (`EventTileFactory → Api`, a real import), because it only knows the start file's cycle group. It now reports that `src/modules/Api.ts` is outside the group instead.
+
+**How to read these numbers:**
+- **Dollars and wall time are the headline, not tokens.** Most of the baseline's tokens are its growing context re-read from cache on every turn, and cache reads are cheap. The token ratios (~8× on directus, ~31× on element-web) overstate the real saving by 2–4×.
+- **The baseline has Read, Grep and Glob only.** It has no shell, so it can't run `madge --circular` or `tsc`, which a developer would reach for. Against that baseline the engine is ~4–8× cheaper. Against the bash-madge arm it is ~2.7× cheaper on directus and ~2.5× on element-web, and ~5× faster on both. Those are the numbers to quote.
+- **No session reached the answers.** Target repos sit inside this project, a few folders below the generated tasks and their expected answers. `npm run audit` scans every session's tool calls for paths outside the target checkout, or any reference to the answer files. It found nothing in all 550 long-loop sessions, and each results file carries its `meta.audit` record.
+- **The tasks fit the tool.** `find_cycle_through_file` was built after these tasks exposed the gap, and it answers exactly their question. Path and runtime-vs-type trap tasks on the same repos haven't been run yet.
+- **The one-time index build isn't counted.** It takes a few minutes on element-web, before any session starts.
+
 ### Overall reading
 
 This is not "faster than grep." Where a name search can answer the question directly, the engine is a wash or a cost:
@@ -189,12 +250,26 @@ This is not "faster than grep." Where a name search can answer the question dire
 The large, repeatable wins all come from multi-hop and whole-graph questions, the two things text search structurally cannot do:
 - long import paths: ~15× fewer tokens on TypeORM, and ~3.2× on nest paths that exist
 - runtime-cycle detection over a whole repo: ~46× fewer tokens on TypeORM, and ~107× on nest
+- tracing a cycle through a given file in repos with long loops: ~4× cheaper in dollars on directus and ~8× on element-web than a Read/Grep agent. Against an agent with a shell and madge it was ~2.5–2.7× cheaper and ~5× faster on both repos. All at equal or better accuracy (see the caveats [above](#generated-graded-tasks-long-loop-repos-directus-element-web)).
 
-In the 370 graded sessions, accuracy was essentially the same in both arms (183/185 baseline, 184/185 assisted). On these tasks, the engine changes what a correct answer costs, not whether the agent finds it.
+In the 370 graded nest sessions, accuracy was essentially the same in both arms (183/185 baseline, 184/185 assisted). In the 550 long-loop sessions, every arm answered every cycle task correctly except one bash-madge session, which followed a dynamic `import()` that the cycle prompt hadn't yet ruled out. On these tasks, the engine changes what a correct answer costs, not whether the agent finds it.
 
 ## Circular dependency detection
 
 `find_circular_dependencies()` reports strongly connected components of the import graph (Tarjan's algorithm), each with one concrete example cycle. It reports components rather than enumerating every simple cycle, because a tangled component can contain exponentially many of those — the component is the actionable unit, the example makes it concrete.
+
+**Output is kept small, and the per-file question has its own tool.** The first long-loop benchmark run (directus, a 157-file runtime group) had the RIE arm spending ~1.6x the baseline's tokens per correct answer. Agents called this tool in all 50 runs; its output was ~25K characters (absolute paths, every member of every group), which stayed in context and was re-read on every later turn. It also didn't answer the question those tasks asked, "give a loop through file X", so agents grepped anyway. The MCP tool now returns paths relative to the repo, member lists only for groups of 8 files or fewer, and a pointer to `find_cycle_through_file`, which BFSes from the file back to itself and returns the shortest loop through it (or `in_cycle: false`, with `files_searched` and `type_only_cycle_exists`). On directus that is 2.5K characters instead of 24.8K, and `find_cycle_through_file` returns a chain the task validator accepts on 10/10 cycle tasks, each at the oracle's minimum length. The engine's `findCircularDependencies` still returns the full form, which the oracle comparison uses.
+
+With that change the rie arm went from ~1.6x more to **~2.2x fewer tokens per correct answer** than the baseline on the same 10 directus tasks (107K vs 235K, both 50/50 correct; `benchmarks/results/harness/directus-2026-09-30T07-10-55-765Z.json`). Every rie session still grepped, though, to confirm each step of the loop was a real, non-erased import. So `find_cycle_through_file` now also returns `hops`: for each step, the statement's `file:line`, its text, and `runtime_names`, meaning the imported names the type checker saw used as values. That comes from three columns the indexer now records per edge (`line`, `statement`, `imported_name`). Re-measured on the same 10 tasks (rie arm only, 50 sessions, `directus-2026-09-30T10-30-32-403Z.json`): 50/50 correct at **30K tokens per correct answer**, down from 107K and about 7.8x below the baseline's 235K. The median session made 1 tool call, 40 of 50 sessions made no other call, and Grep/Read calls fell from 268/13 to 11/4. The baseline figure comes from the earlier run the same day, with the same model, CLI and tasks.
+
+All three directus result files were re-graded (`npm run regrade`, recorded in each file's `meta.regraded`) after a grader fix. The prompt asks for paths "relative to the repository root", and in a monorepo package that can mean the git root. The grader now accepts `api/src/...` when the path only exists without that prefix. Each two-arm run had exactly one baseline answer that found the correct loop but was marked wrong for this prefix. The baseline is now 50/50 in both runs, at 223K (09-29) and 235K (09-30) tokens per correct answer.
+
+Running the emitted-JS oracle on directus and element-web while building this turned up three erasure gaps. Each one hid a runtime edge, and each was checked against real `tsc` emit before it was fixed. They didn't change any cycle group on either repo:
+- `import { type X } from` under `verbatimModuleSyntax` compiles to `import {} from`, which still loads the module. RIE had treated it as erased (2 edges on directus).
+- An instantiation expression (`Dialog<Props>` passed as a value) was read as a type position (1 edge on element-web).
+- In a statement with both a default import and named imports, the default binding's verdict was applied to every name.
+
+After the fixes, the oracle reports 0 hidden runtime edges on all four benchmark repos: TypeORM 1144 edges agree, nest 1440 agree with 2 safe over-reports, directus 2237 agree, element-web 6467 agree.
 
 **Erased imports are excluded by default.** An import that TypeScript erases is a real *source* dependency but cannot produce a *runtime* cycle. The indexer records this per edge (`edges.is_type_only`), at both statement and specifier granularity — `import { type A, b }` is one statement carrying one erased edge and one real one.
 
@@ -301,20 +376,25 @@ The fix for nest was to point the aliases at files (`"@nestjs/common": ["./packa
 
 ## Test suite
 
-`npm test` runs **177 tests in 11 files, all passing** (vitest, 2026-09-28). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. They don't need a cloned benchmark target.
+`npm test` runs **330 tests in 13 files, all passing, plus 38 skipped** (vitest, 2026-10-11). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases write their own base and PR snapshots to a temp directory. None of the tests needs a cloned benchmark target.
+
+The skipped tests are the `rie check` contract. 16 cases in `src/check/cycle-events.cases.ts` cover the eight cycle events and the rules every event follows: runtime edges only, barrels count, old cycles never fail, renames are matched, and the strictest outcome wins. Each case states the expected events, outcome and evidence. The contract runs once `src/check/index.ts` exists. Until then, each case's premises are checked against a real tsc emit: the groups, the trap imports, the evidence lines, and that each evidence loop is the shortest loop through its new edge.
 
 | File | Covers | Tests |
 |---|---|---|
-| `src/engine/index.test.ts` | All six queries, explicit not-found results, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path `dependency_path` | 41 |
-| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata | 40 |
-| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums and decorator metadata | 31 |
-| `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed | 21 |
-| `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading, summaries (stub agent) | 10 |
-| `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 9 |
+| `src/engine/index.test.ts` | All six queries, explicit not-found results, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path and runtime-only `dependency_path`, `find_cycle_through_file` and per-hop evidence for both | 55 |
+| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata | 52 |
+| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums, decorator metadata, unresolved internal imports | 35 |
+| `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed, trap direction grading | 25 |
+| `benchmarks/oracle/cycle-events.test.ts` | The `rie check` cycle event cases against tsc emit: groups, traps, evidence lines, shortest loops, every new edge cited | 90 (+22 that don't apply to every case) |
+| `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, the spend stop, the consecutive-failure stop, turn-capped sessions, cost estimates, arm reuse, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 29 |
+| `src/check/cycle-events.test.ts` | The `rie check` contract: each case's events, outcome and evidence (skipped until `src/check/index.ts` exists) | 16 skipped |
+| `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 10 |
 | `src/indexer/erasure.test.ts` | Value-position analysis, `verbatimModuleSyntax` gate | 8 |
 | `benchmarks/oracle/tarjan.test.ts` | Independent SCC implementation | 6 |
-| `src/indexer/resolution.test.ts` | Unresolved internal import detection (ESM directory aliases, bare `require()`) | 5 |
-| `src/indexer/references.test.ts` | `findReferences` union across alias groups | 4 |
+| `benchmarks/oracle/loops.test.ts` | Shortest loop through each cycle member (`npm run screen`) | 6 |
+| `src/indexer/resolution.test.ts` | Unresolved internal import detection (ESM directory aliases, bare `require()`, asset imports ignored) | 5 |
+| `src/indexer/references.test.ts` | `findReferences` union across alias groups; regular and `const` enums as symbols, with every use and re-export | 7 |
 | `src/engine/reindex.test.ts` | A full rebuild is idempotent and reflects added and removed files | 2 |
 
 ## Development
@@ -327,15 +407,18 @@ npm run mcp             # start the MCP server (stdio)
 npm test                # vitest
 npm run bench           # benchmark harness (spawns Claude Code per run)
 npm run oracle -- <path-to-tsconfig.json>   # diff RIE's runtime edges against a real tsc emit
+npm run screen -- <path-to-tsconfig.json>   # how hard would this repo's cycle tasks be? (no agents, no index)
 npm run taskgen -- --config=nest            # generate graded tasks -> benchmarks/generated/nest.json
 npm run harness -- --config=nest --runs=5   # run them per tool arm, grade, and summarize
 ```
 
 `npm run harness` runs every generated task as a fresh headless Claude Code session per tool arm, with the identical prompt, model, repo checkout and built-in Read/Grep/Glob. Arms differ only in the one MCP server they load, listed in `benchmarks/tools.json` (`baseline` loads none). Each prompt ends with a fixed instruction to answer in a JSON block. Only that block is graded, by the task's validator, and a reply without one is scored wrong rather than guessed at. Arm order rotates across runs, and a crashed run counts as a wrong answer, not a missing one. Reported per task, category and arm: accuracy, **tokens per correct answer** (all tokens spent ÷ correct answers), median tokens with IQR, tool calls and wall time. Tokens are the primary cost measure rather than dollars, because the token count doesn't depend on cache hits. Results keep every run's transcript metrics, final text and grade in `benchmarks/results/harness/`. `--dry-run` prints the exact agent commands without launching anything. Claude Code exposes no temperature setting, so variance between runs is measured rather than controlled.
 
-`npm run taskgen` builds benchmark tasks from compiler ground truth, never from RIE's index: cycle tracing (graded by a validator that accepts any runtime cycle through the start file), dependency paths ("can you get from A to B by following imports?": half are chains of at least `--min-hops` hops, default 5, and any valid chain is accepted; half have no path, even though A transitively imports at least `--min-closure` files, default 25, and B sits next door and usually reaches A; answering "no" means ruling out that whole set), runtime-vs-type traps (yes/no pairs, where every "no" is a cycle that only closes through an erased import), and change impact (the answer comes from actually removing the export in memory and re-type-checking). A task is dropped when it hinges on fewer than `--min-path` files (default 4; a task file can set `taskgen.min_path`, and nest uses 3 because its only runtime cycles are 3-file loops). A change-impact task is also dropped when a broken named re-export (`export { X } from`) shields importers: TypeScript's error recovery still resolves `X` through the broken line, so those importers compile, which no reader of the source would predict. Every prompt states its scope (only the files the tsconfig includes), since the ground truth covers nothing else. Generation refuses to run if any internal import fails to resolve under the compiler's own ESM/CJS resolution mode (`--allow-unresolved` overrides): such an import is a baseline type error, so the impact oracle can't see anything break through it. On nest, directory-style `paths` aliases in `"type": "module"` packages caused exactly this, hiding every cross-package file. `reindex` reports the same check, and the harness won't benchmark against a partial index. Each task carries difficulty tags (SCC size, path length, barrels, aliases, type-only distractors) and the tsconfig flags it was generated under. Output is deterministic for a given `--seed`.
+`npm run taskgen` builds benchmark tasks from compiler ground truth, never from RIE's index: cycle tracing (graded by a validator that accepts any runtime cycle through the start file), dependency paths ("can you get from A to B by following imports?": half are chains of at least `--min-hops` hops, default 5, and any valid chain is accepted; half have no path, even though A transitively imports at least `--min-closure` files, default 25, and B sits next door and usually reaches A; answering "no" means ruling out that whole set), runtime-vs-type traps (yes/no pairs, where every "no" is a cycle that only closes through an erased import, and a "no" must also name the direction with no runtime path; on a repo with no runtime cycles every trap is a "no", so yes/no alone would give a blanket "no" full marks), and change impact (the answer comes from actually removing the export in memory and re-type-checking). A task is dropped when it hinges on fewer than `--min-path` files (default 4; a task file can set `taskgen.min_path`, and nest uses 3 because its only runtime cycles are 3-file loops). A change-impact task is also dropped when a broken named re-export (`export { X } from`) shields importers: TypeScript's error recovery still resolves `X` through the broken line, so those importers compile, which no reader of the source would predict. Every prompt states its scope (only the files the tsconfig includes), since the ground truth covers nothing else. Generation refuses to run if any internal import fails to resolve under the compiler's own ESM/CJS resolution mode (`--allow-unresolved` overrides): such an import is a baseline type error, so the impact oracle can't see anything break through it. On nest, directory-style `paths` aliases in `"type": "module"` packages caused exactly this, hiding every cross-package file. `reindex` reports the same check, and the harness won't benchmark against a partial index. Each task carries difficulty tags (SCC size, path length, barrels, aliases, type-only distractors) and the tsconfig flags it was generated under. Output is deterministic for a given `--seed`.
 
 `npm run oracle` is the reusable form of the manual validation described above under "Checking it edge by edge": it compiles the target repo for real (`benchmarks/oracle/emitted-edges.ts`), reads which imports actually survive into emitted output, and diffs that against RIE's own index — printing the same agree / safe-over-report / dangerous-hidden-edge breakdown, plus an SCC comparison. The ground-truth side (`emitted-edges.ts` and its own `tarjan.ts`) shares no code with `src/indexer` or `src/engine`, by design: it's the check that would catch a bug in either. Only the comparison script, `compare.ts`, imports the engine, because the engine is what it diffs against. It exits 1 if any real runtime edge is reported as erased.
+
+`npm run screen` decides whether a repo is worth benchmarking before any agent runs. It compiles the repo with the oracle and reports, for each runtime cycle group, the shortest loop back to each file. A cycle-trace task accepts any loop through its start file, so that shortest loop, not the group's size, is what makes the task hard. The TypeScript compiler shows the difference: a 73-file group in which 69 files loop back through one barrel in 2 steps. It also flags internal imports that don't resolve, since those make a repo look less tangled than it is. Ten candidate repos were screened on 2026-09-29. Two have long loops: directus (a 157-file group, 57% of whose files have no loop shorter than 6) and element-web (115 files, 50%). The full table, configs and caveats are in [`benchmarks/candidates-config/`](benchmarks/candidates-config/README.md).
 
 ### Setting up a benchmark target
 
@@ -349,7 +432,7 @@ npm run build
 npm run index -- benchmarks/target-repo-nest/tsconfig.rie.json benchmarks/nest-index.db
 ```
 
-The index takes about 40 s: 1,473 symbols, 3,442 edges and 10,082 references. Until it exists, the MCP server in `.mcp.json` opens an empty database and every query returns nothing. TypeORM works the same way, from `benchmarks/tasks.json`:
+The index takes about 40 s: 1,507 symbols, 3,442 edges and 10,857 references. Until it exists, the MCP server in `.mcp.json` opens an empty database and every query returns nothing. TypeORM works the same way, from `benchmarks/tasks.json`:
 
 ```bash
 git clone https://github.com/typeorm/typeorm.git benchmarks/target-repo
@@ -364,4 +447,12 @@ The benchmark harness needs the standalone `claude` CLI on `PATH`. If it is inst
 shell started before it was added to `PATH` cannot see it, the harness falls back to the
 standard `~/.local/bin` location; set `RIE_CLAUDE_BIN` to override explicitly. Useful flags:
 `npm run bench` takes `--config=nest`, `--tasks=id,id`, `--arms=baseline,assisted`, `--runs=N`, `--skip-build`;
-`npm run harness` takes `--config=nest`, `--tools=baseline,rie`, `--category=…`, `--task-ids=id,id`, `--limit=N`, `--runs=N`, `--dry-run`, `--skip-build`.
+`npm run harness` takes `--config=nest`, `--tools=baseline,rie`, `--category=…`, `--task-ids=id,id`, `--limit=N`, `--runs=N`, `--dry-run`, `--skip-build`, `--resume=<results>`.
+
+Spending controls for the harness. Before launching, it prints an estimated cost per arm from the mean cost of past sessions on the same repo and category.
+
+- `--max-spend=USD` stops launching once this invocation has spent that much. The results file is marked `stopped_early`, and `--resume` finishes it.
+- `--max-failures=N` (default 3, `0` turns it off) stops after N failed sessions in a row, with the reason `consecutive_failures`. Spend can't detect a usage limit, because every launch then exits 1 at no cost. On 10-07 that recorded 167 failed sessions before anything noticed. A failed launch now also reports whatever the CLI printed on stdout.
+- `--pilot` runs each task once, to catch a prompt or grader bug before the full run. Its results are named `<repo>-pilot-*`. The default is 3 runs per task; use `--runs=5` only for numbers you publish.
+- `--reuse=baseline=<results.json>` uses an unchanged arm's sessions from an earlier run instead of paying for new ones. It is refused if any session is missing or any task's prompt changed since that run, and `meta.reused` records the source and its CLI version.
+- `--max-turns=N` caps each session (default 150, about twice the most any session has used; `0` turns it off). A capped session counts as wrong and is reported in its own `capped` column, so a cap that is too tight shows up instead of quietly favoring the cheaper arm.

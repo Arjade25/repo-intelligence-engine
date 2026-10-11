@@ -11,6 +11,8 @@ import {
   findSymbolReferences,
   dependencyPath,
   findCircularDependencies,
+  circularDependencyReport,
+  findCycleThroughFile,
 } from "../engine/index.js";
 import { createServer } from "./index.js";
 
@@ -48,6 +50,7 @@ describe("mcp-server (thin adapter over engine/, plan step 5)", () => {
       [
         "dependency_path",
         "find_circular_dependencies",
+        "find_cycle_through_file",
         "find_module",
         "find_related_files",
         "find_symbol_references",
@@ -81,9 +84,17 @@ describe("mcp-server (thin adapter over engine/, plan step 5)", () => {
 
   it("dependency_path: MCP result matches the direct engine call", async () => {
     const viaMcp = await callToolJson(client, "dependency_path", { symbol_a: "run", symbol_b: "add" });
-    const direct = dependencyPath(db, "run", "add");
+    const direct = dependencyPath(db, "run", "add", { root: dirname(FIXTURE_TSCONFIG) });
     expect(viaMcp).toEqual(direct);
     expect(direct.found).toBe(true);
+
+    const runtimeViaMcp = await callToolJson(client, "dependency_path", {
+      symbol_a: "run",
+      symbol_b: "add",
+      runtime_only: true,
+    });
+    expect(runtimeViaMcp).toEqual(dependencyPath(db, "run", "add", { runtimeOnly: true, root: dirname(FIXTURE_TSCONFIG) }));
+    expect(runtimeViaMcp).toMatchObject({ path_type: "runtime" });
   });
 
   it("reindex: MCP call rebuilds the index exactly like calling engine.reindex directly", async () => {
@@ -104,8 +115,8 @@ describe("mcp-server (thin adapter over engine/, plan step 5)", () => {
 
   it("find_circular_dependencies: reports none for the acyclic fixture repo", async () => {
     const viaMcp = await callToolJson(client, "find_circular_dependencies", {});
-    expect(viaMcp).toEqual(findCircularDependencies(db));
-    expect(viaMcp).toEqual([]);
+    expect(viaMcp).toEqual(circularDependencyReport(db, { root: dirname(FIXTURE_TSCONFIG) }));
+    expect(viaMcp).toEqual({ cycle_type: "runtime", groups: [], files_in_cycles: 0 });
   });
 });
 
@@ -133,10 +144,18 @@ describe("mcp-server: find_circular_dependencies over a cyclic index", () => {
   });
 
   it("MCP result matches the direct engine call, and is non-empty", async () => {
-    const viaMcp = (await callToolJson(client, "find_circular_dependencies", {})) as unknown[];
-    const direct = findCircularDependencies(db);
+    const viaMcp = await callToolJson(client, "find_circular_dependencies", {});
+    const direct = circularDependencyReport(db, { root: dirname(FIXTURE_TSCONFIG) });
     expect(viaMcp).toEqual(direct);
-    expect(direct).toHaveLength(1);
-    expect(direct[0].files).toEqual(["/r/a.ts", "/r/b.ts"]);
+    expect(direct.groups).toHaveLength(1);
+    expect(direct.groups[0].files).toEqual(["/r/a.ts", "/r/b.ts"]);
+    expect(findCircularDependencies(db)[0].files).toEqual(direct.groups[0].files);
+  });
+
+  it("find_cycle_through_file: MCP result matches the direct engine call", async () => {
+    const viaMcp = await callToolJson(client, "find_cycle_through_file", { file_path: "/r/b.ts" });
+    const direct = findCycleThroughFile(db, "/r/b.ts", { root: dirname(FIXTURE_TSCONFIG) });
+    expect(viaMcp).toEqual(direct);
+    expect(direct.cycle).toEqual(["/r/b.ts", "/r/a.ts", "/r/b.ts"]);
   });
 });

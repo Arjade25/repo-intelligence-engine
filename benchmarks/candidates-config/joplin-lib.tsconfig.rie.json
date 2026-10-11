@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2017",
+    "esModuleInterop": true,
+    "strict": false,
+    "alwaysStrict": true,
+    "jsx": "react",
+    "skipLibCheck": true,
+    "allowUmdGlobalAccess": true,
+    "types": []
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["**/node_modules", "**/plugin_types", "**/*.test.ts", "**/*.test.tsx", "**/testing/**", "**/*.d.ts"]
+}
