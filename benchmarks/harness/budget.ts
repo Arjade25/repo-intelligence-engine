@@ -79,6 +79,43 @@ export function estimateCost(
   return { arms, total_usd: known ? arms.reduce((s, a) => s + a.usd!, 0) : null };
 }
 
+export type StopReason = "max_spend" | "consecutive_failures";
+
+/**
+ * When to stop launching: once this invocation's spend reaches --max-spend, or after
+ * `maxConsecutiveFailures` sessions in a row fail. The second exists because spend
+ * can't see a usage limit: on 10-07 every launch from session 134 on exited 1 with
+ * no output and cost nothing, and 167 of them were recorded before the run ended.
+ * A stopped run is marked stopped_early, and --resume finishes it once the cause
+ * is fixed. One success resets the count, so a single crash doesn't stop a run.
+ */
+export function createStopRule(opts: { maxSpend?: number; maxConsecutiveFailures?: number }) {
+  let spent = 0;
+  let failures = 0;
+  let reason: StopReason | undefined;
+  return {
+    /** Feed every session launched now (not kept or reused ones). */
+    record(r: Pick<RunRecord, "ok" | "cost_usd">) {
+      spent += r.cost_usd ?? 0;
+      failures = r.ok ? 0 : failures + 1;
+    },
+    shouldStop(): boolean {
+      if (opts.maxSpend !== undefined && spent >= opts.maxSpend) reason = "max_spend";
+      else if (opts.maxConsecutiveFailures && failures >= opts.maxConsecutiveFailures) reason = "consecutive_failures";
+      return reason !== undefined;
+    },
+    get spent() {
+      return spent;
+    },
+    get failures() {
+      return failures;
+    },
+    get reason() {
+      return reason;
+    },
+  };
+}
+
 export interface ReuseSource {
   tool: string;
   path: string;

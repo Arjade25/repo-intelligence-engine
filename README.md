@@ -448,6 +448,7 @@ standard `~/.local/bin` location; set `RIE_CLAUDE_BIN` to override explicitly. U
 Spending controls for the harness. Before launching, it prints an estimated cost per arm from the mean cost of past sessions on the same repo and category.
 
 - `--max-spend=USD` stops launching once this invocation has spent that much. The results file is marked `stopped_early`, and `--resume` finishes it.
+- `--max-failures=N` (default 3, `0` turns it off) stops after N failed sessions in a row, with the reason `consecutive_failures`. Spend can't detect a usage limit, because every launch then exits 1 at no cost. On 10-07 that recorded 167 failed sessions before anything noticed. A failed launch now also reports whatever the CLI printed on stdout.
 - `--pilot` runs each task once, to catch a prompt or grader bug before the full run. Its results are named `<repo>-pilot-*`. The default is 3 runs per task; use `--runs=5` only for numbers you publish.
 - `--reuse=baseline=<results.json>` uses an unchanged arm's sessions from an earlier run instead of paying for new ones. It is refused if any session is missing or any task's prompt changed since that run, and `meta.reused` records the source and its CLI version.
 - `--max-turns=N` caps each session (default 150, about twice the most any session has used; `0` turns it off). A capped session counts as wrong and is reported in its own `capped` column, so a cap that is too tight shows up instead of quietly favoring the cheaper arm.
