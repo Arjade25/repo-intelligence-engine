@@ -376,7 +376,9 @@ The fix for nest was to point the aliases at files (`"@nestjs/common": ["./packa
 
 ## Test suite
 
-`npm test` runs **239 tests in 12 files, all passing** (vitest, 2026-10-09). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. They don't need a cloned benchmark target.
+`npm test` runs **330 tests in 13 files, all passing, plus 38 skipped** (vitest, 2026-10-11). The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases write their own base and PR snapshots to a temp directory. None of the tests needs a cloned benchmark target.
+
+The skipped tests are the `rie check` contract. 16 cases in `src/check/cycle-events.cases.ts` cover the eight cycle events and the rules every event follows: runtime edges only, barrels count, old cycles never fail, renames are matched, and the strictest outcome wins. Each case states the expected events, outcome and evidence. The contract runs once `src/check/index.ts` exists. Until then, each case's premises are checked against a real tsc emit: the groups, the trap imports, the evidence lines, and that each evidence loop is the shortest loop through its new edge.
 
 | File | Covers | Tests |
 |---|---|---|
@@ -384,7 +386,9 @@ The fix for nest was to point the aliases at files (`"@nestjs/common": ["./packa
 | `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata | 52 |
 | `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums, decorator metadata, unresolved internal imports | 35 |
 | `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed, trap direction grading | 25 |
-| `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, the spend stop, turn-capped sessions, cost estimates, arm reuse, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 28 |
+| `benchmarks/oracle/cycle-events.test.ts` | The `rie check` cycle event cases against tsc emit: groups, traps, evidence lines, shortest loops, every new edge cited | 90 (+22 that don't apply to every case) |
+| `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, the spend stop, the consecutive-failure stop, turn-capped sessions, cost estimates, arm reuse, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 29 |
+| `src/check/cycle-events.test.ts` | The `rie check` contract: each case's events, outcome and evidence (skipped until `src/check/index.ts` exists) | 16 skipped |
 | `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 10 |
 | `src/indexer/erasure.test.ts` | Value-position analysis, `verbatimModuleSyntax` gate | 8 |
 | `benchmarks/oracle/tarjan.test.ts` | Independent SCC implementation | 6 |
@@ -448,6 +452,7 @@ standard `~/.local/bin` location; set `RIE_CLAUDE_BIN` to override explicitly. U
 Spending controls for the harness. Before launching, it prints an estimated cost per arm from the mean cost of past sessions on the same repo and category.
 
 - `--max-spend=USD` stops launching once this invocation has spent that much. The results file is marked `stopped_early`, and `--resume` finishes it.
+- `--max-failures=N` (default 3, `0` turns it off) stops after N failed sessions in a row, with the reason `consecutive_failures`. Spend can't detect a usage limit, because every launch then exits 1 at no cost. On 10-07 that recorded 167 failed sessions before anything noticed. A failed launch now also reports whatever the CLI printed on stdout.
 - `--pilot` runs each task once, to catch a prompt or grader bug before the full run. Its results are named `<repo>-pilot-*`. The default is 3 runs per task; use `--runs=5` only for numbers you publish.
 - `--reuse=baseline=<results.json>` uses an unchanged arm's sessions from an earlier run instead of paying for new ones. It is refused if any session is missing or any task's prompt changed since that run, and `meta.reused` records the source and its CLI version.
 - `--max-turns=N` caps each session (default 150, about twice the most any session has used; `0` turns it off). A capped session counts as wrong and is reported in its own `capped` column, so a cap that is too tight shows up instead of quietly favoring the cheaper arm.

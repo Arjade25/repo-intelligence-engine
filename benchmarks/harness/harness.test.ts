@@ -15,7 +15,7 @@ import { extractAnswerJson, gitRootPrefix, gradeAnswer, toRepoRelative } from ".
 import { runBenchmark, summarize, type Runner } from "./bench.js";
 import { agentEnv, claudeArgs, parseTranscript, type TranscriptMetrics } from "./claude.js";
 import { leakReason } from "./audit.js";
-import { estimateCost, loadReusedArm } from "./budget.js";
+import { createStopRule, estimateCost, loadReusedArm } from "./budget.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(__dirname, "../../fixtures/taskgen-repo").replace(/\\/g, "/");
@@ -239,6 +239,40 @@ describe("runBenchmark + summarize", () => {
     expect(records).toHaveLength(3);
     expect(records[1]).toMatchObject({ ok: true, capped: true, grade: { correct: false } });
     expect(summarize(records).overall[0]).toMatchObject({ runs: 3, correct: 2, errors: 0, capped: 1 });
+  });
+
+  it("stops after N failed sessions in a row, which spend alone can't see; one success resets the count", () => {
+    const truth = trap.expected.answer ? "yes" : "no";
+    // Launch 2 crashes once, then from launch 4 on every launch fails, like a usage limit.
+    let launched = 0;
+    const runner: Runner = () => {
+      launched++;
+      if (launched === 2 || launched >= 4) throw new Error("claude exited 1: (no stderr, no stdout)");
+      return { session_id: "s", final_text: json({ answer: truth }), metrics: metrics(50), wall_ms: 1, cost_usd: 0, num_turns: 3 };
+    };
+    const stop = createStopRule({ maxSpend: 10, maxConsecutiveFailures: 3 });
+    const records = runBenchmark({
+      tasks: [trap],
+      tools: [{ name: "a", mcpConfigPath: "a.json" }],
+      runs: 20,
+      runner,
+      repoRoot: FIXTURE,
+      onRun: (r, _d, _t, wasKept) => !wasKept && stop.record(r),
+      shouldStop: stop.shouldStop,
+    });
+
+    expect(launched).toBe(6); // the lone crash at 2 didn't stop it; failures 4, 5, 6 did
+    expect(records).toHaveLength(6);
+    expect(stop.reason).toBe("consecutive_failures");
+
+    const off = createStopRule({ maxConsecutiveFailures: 0 });
+    for (let i = 0; i < 50; i++) off.record({ ok: false, cost_usd: null });
+    expect(off.shouldStop()).toBe(false);
+
+    const spend = createStopRule({ maxSpend: 1, maxConsecutiveFailures: 3 });
+    spend.record({ ok: true, cost_usd: 1.2 });
+    expect(spend.shouldStop()).toBe(true);
+    expect(spend.reason).toBe("max_spend");
   });
 });
 

@@ -22,6 +22,8 @@
  *          --reuse=<tool>=<results.json>[,...]  (use that arm's sessions from an earlier run
  *          instead of new ones - for an arm that hasn't changed, like the Read/Grep baseline;
  *          refused if any task's prompt changed or a session is missing; recorded in meta.reused)
+ *          --max-failures=N  (stop after N failed sessions in a row, default 3, 0 = off; a usage
+ *          limit fails every launch at no cost, so --max-spend never fires; marked stopped_early)
  *          --max-turns=N  (cap each session at N turns, default 150, 0 = off; a capped session
  *          counts as wrong and is reported in its own column - keep the cap far above normal
  *          use, or it hands the cheaper arm wins it didn't earn)
@@ -47,7 +49,7 @@ import { describeUnresolved } from "../../src/indexer/resolution.js";
 import { claudeArgs, resolveClaudeBin, runClaude } from "./claude.js";
 import { runBenchmark, summarize, type CellSummary, type RunRecord, type ToolArm } from "./bench.js";
 import { buildPrompt } from "./grade.js";
-import { estimateCost, loadCostHistory, loadReusedArm, type ReuseSource } from "./budget.js";
+import { createStopRule, estimateCost, loadCostHistory, loadReusedArm, type ReuseSource } from "./budget.js";
 
 const BENCH_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PROJECT_ROOT = join(BENCH_DIR, "..");
@@ -121,6 +123,9 @@ if (pilot && flag("runs") && flag("runs") !== "1") throw new Error("--pilot mean
 const runs = pilot ? 1 : Number(flag("runs") ?? 3);
 const maxSpend = flag("max-spend") === undefined ? undefined : Number(flag("max-spend"));
 if (maxSpend !== undefined && !(maxSpend > 0)) throw new Error(`--max-spend must be a dollar amount above 0, got "${flag("max-spend")}"`);
+// Stop after this many failed sessions in a row (a usage limit fails every launch, at no cost). 0 = off.
+const maxFailures = Number(flag("max-failures") ?? 3);
+if (!(maxFailures >= 0)) throw new Error(`--max-failures must be 0 or more, got "${flag("max-failures")}"`);
 // 150 is about twice the most turns any session has taken (74, an element-web baseline);
 // medians are 5-11. 0 turns the cap off.
 const maxTurns = Number(flag("max-turns") ?? 150);
@@ -255,9 +260,8 @@ if (resumeFrom) {
 }
 
 const resumedAt = new Date();
-// Spend of the sessions launched by this invocation (kept and reused ones were paid for earlier).
-let spent = 0;
-const stop = { early: false };
+// Spend and failure streak of the sessions launched by this invocation (kept and reused ones were paid for earlier).
+const stop = createStopRule({ maxSpend, maxConsecutiveFailures: maxFailures });
 const records = runBenchmark({
   tasks,
   tools,
@@ -266,15 +270,12 @@ const records = runBenchmark({
   repoRoot,
   keep: [...kept, ...reused.flatMap((r) => r.records)],
   runner: (req) => runClaude(claudeBin, { ...req, timeoutMs: sessionTimeoutMs, maxTurns }),
-  shouldStop: () => {
-    if (maxSpend === undefined || spent < maxSpend) return false;
-    stop.early = true;
-    return true;
-  },
+  shouldStop: stop.shouldStop,
   onRun: (r, done, total, wasKept) => {
     appendFileSync(partialOut, JSON.stringify(r) + "\n");
     if (wasKept) return; // already reported by the earlier attempt, or reused
-    spent += r.cost_usd ?? 0;
+    stop.record(r);
+    const spent = stop.spent;
     const m = r.metrics;
     const verdict = !r.ok
       ? `ERROR ${r.error?.split("\n")[0]}`
@@ -290,8 +291,14 @@ const records = runBenchmark({
     );
   },
 });
-if (stop.early) {
+const spent = stop.spent;
+if (stop.reason === "max_spend") {
   console.warn(`\nSTOPPED: spend reached $${spent.toFixed(2)} (--max-spend=${maxSpend}). Finish later with --resume=${out}`);
+} else if (stop.reason === "consecutive_failures") {
+  console.warn(
+    `\nSTOPPED: the last ${stop.failures} sessions all failed - often a usage limit, auth, or a broken CLI install.\n` +
+      `Run one session by hand (claude -p "hi" --output-format json) to see why, then finish with --resume=${out}`
+  );
 }
 
 const summary = summarize(records);
@@ -318,7 +325,7 @@ writeFileSync(
         spent_usd: spent,
         estimated_usd: estimate.total_usd,
         // A stopped run is incomplete: its summary covers only the sessions that ran.
-        ...(stop.early && { stopped_early: { reason: "max_spend", sessions: records.length, of: tasks.length * toolNames.length * runs } }),
+        ...(stop.reason && { stopped_early: { reason: stop.reason, sessions: records.length, of: tasks.length * toolNames.length * runs } }),
         ...(reused.length > 0 && {
           reused: reused.map((r) => ({
             tool: r.tool,
