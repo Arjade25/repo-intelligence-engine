@@ -4,7 +4,7 @@ import type { HookCallback, Options, SDKMessage } from "@anthropic-ai/claude-age
 import { compareSnapshots, indexSnapshot, type Snapshot } from "../check/index.js";
 import { CYCLE_EVENT_CASES, materialize } from "../check/cycle-events.cases.js";
 import { factsFromEvent, type Finding } from "./finding.js";
-import { buildPrompt, createGate, diffFiles, investigate, READ_ONLY_MCP_TOOLS, readableFiles, type InvestigationInput } from "./runtime.js";
+import { buildPrompt, createGate, diffFiles, explain, investigate, READ_ONLY_MCP_TOOLS, readableFiles, revisePrompt, type InvestigationInput } from "./runtime.js";
 
 const c = CYCLE_EVENT_CASES.find((x) => x.name === "cycle_grown")!;
 const baseTsconfig = materialize(c.base, "runtime-base");
@@ -154,5 +154,90 @@ describe("agent runtime: every draft is verified", () => {
         yield result({});
       })()) as unknown as InvestigationInput["run"];
     expect(await investigate(input(run, { limits: { timeoutMs: 20 } }))).toMatchObject({ status: "no_draft", stop: "timeout" });
+  });
+});
+
+/** A query() stand-in for several calls in a row: call i makes calls[i]'s tool calls, then yields replies[i]. */
+function stubSequence(replies: SDKMessage[][], calls: [string, unknown][][] = []) {
+  const seen: { options: Options[]; prompts: string[] } = { options: [], prompts: [] };
+  const run = (({ prompt, options }: { prompt: string; options: Options }) => {
+    const i = seen.options.length;
+    seen.options.push(options);
+    seen.prompts.push(prompt);
+    return (async function* () {
+      const hook = options.hooks!.PreToolUse![0].hooks[0] as HookCallback;
+      for (const [tool_name, tool_input] of calls[i] ?? []) {
+        await hook({ hook_event_name: "PreToolUse", tool_name, tool_input, tool_use_id: "t", session_id: "s1", transcript_path: "", cwd: root } as never, "t", {
+          signal: new AbortController().signal,
+        });
+      }
+      yield* replies[i];
+    })();
+  }) as unknown as InvestigationInput["run"];
+  return { run, seen };
+}
+
+const badDraft = () => {
+  const draft = goodFinding();
+  draft.facts.loops[0].hops[0].line = 7;
+  return draft;
+};
+const lineError = "facts.loops.0.hops.0: src/b.ts has no import of src/d.ts at line 7 (it imports it at line 2)";
+
+describe("revise loop", () => {
+  it("uses a first draft that verifies, with no retry", async () => {
+    const { run, seen } = stubSequence([[result({ structured_output: goodFinding() })]]);
+    const e = await explain(input(run));
+    expect(e).toMatchObject({ source: "agent", finding: goodFinding(), cost_usd: 0.02 });
+    expect(seen.options).toHaveLength(1);
+  });
+
+  it("retries once in the same session with the verifier's reasons", async () => {
+    const { run, seen } = stubSequence([
+      [result({ structured_output: badDraft(), total_cost_usd: 0.1 })],
+      [result({ structured_output: goodFinding(), total_cost_usd: 0.15 })],
+    ]);
+    const e = await explain(input(run, { limits: { maxBudgetUsd: 0.4 } }));
+    expect(e).toMatchObject({ source: "agent", finding: goodFinding(), cost_usd: 0.15 });
+    expect(e.attempts.map((a) => a.status)).toEqual(["rejected", "verified"]);
+    expect(seen.options[1].resume).toBe("s1");
+    expect(seen.options[1].maxBudgetUsd).toBeCloseTo(0.3);
+    expect(seen.prompts[1]).toBe(revisePrompt([lineError]));
+    expect(seen.prompts[1]).toContain(`- ${lineError}`);
+  });
+
+  it("falls back to the deterministic facts after a second rejection", async () => {
+    const { run } = stubSequence([[result({ structured_output: badDraft() })], [result({ structured_output: badDraft() })]]);
+    const e = await explain(input(run));
+    expect(e.source).toBe("deterministic");
+    if (e.source !== "deterministic") return;
+    expect(e.facts).toEqual(factsFromEvent(event));
+    expect(e.reason).toBe(`the agent's finding failed verification twice: ${lineError}`);
+    expect(e.attempts).toHaveLength(2);
+  });
+
+  it("doesn't retry a session that ended without a draft", async () => {
+    const { run, seen } = stubSequence([[result({ subtype: "error_max_turns", is_error: true, errors: [] })]]);
+    const e = await explain(input(run));
+    expect(e).toMatchObject({ source: "deterministic", reason: "the agent returned no finding (error_max_turns)" });
+    expect(seen.options).toHaveLength(1);
+  });
+
+  it("doesn't retry when the first attempt spent the budget", async () => {
+    const { run, seen } = stubSequence([[result({ structured_output: badDraft(), total_cost_usd: 0.5 })]]);
+    expect((await explain(input(run, { limits: { maxBudgetUsd: 0.5 } }))).source).toBe("deterministic");
+    expect(seen.options).toHaveLength(1);
+  });
+
+  it("shares the tool-call cap between the attempts", async () => {
+    const find = ["mcp__rie__find_cycle_through_file", {}] as [string, unknown];
+    const { run, seen } = stubSequence(
+      [[result({ structured_output: badDraft() })], [result({ structured_output: goodFinding() })]],
+      [[find, find, find], [find, find]]
+    );
+    const e = await explain(input(run, { limits: { maxToolCalls: 4 } }));
+    expect(e.attempts.map((a) => a.tool_calls)).toEqual([3, 1]);
+    expect(e.attempts[1].refused).toEqual([expect.stringContaining("Tool-call limit (4) reached")]);
+    expect(seen.options[1].maxTurns).toBe(5); // 1 call left + the backstop's 4
   });
 });

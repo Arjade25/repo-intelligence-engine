@@ -166,13 +166,20 @@ export function buildPrompt(event: CycleEvent, root: string, diff: string): stri
   ].join("\n\n");
 }
 
-/** Run one session for one event, then verify what it returns. */
-export async function investigate(input: InvestigationInput): Promise<InvestigationResult> {
-  const limits = { ...DEFAULT_LIMITS, ...input.limits };
+/** What one attempt shares with the next: the tool gate (so the cap covers both) and the session to resume. */
+interface AttemptState {
+  gate: ReturnType<typeof createGate>;
+  limits: Limits;
+  prompt: string;
+  resume?: string;
+}
+
+/** One session (or one resumed turn of it), then verify what it returns. */
+async function attempt(input: InvestigationInput, state: AttemptState): Promise<InvestigationResult> {
+  const { gate, limits } = state;
   const root = dirname(resolve(input.tsconfig));
-  const gitRoot = input.gitRoot ?? root;
-  const gate = createGate(readableFiles(input.event, input.diff, root, gitRoot), limits.maxToolCalls);
   const refused: string[] = [];
+  const usedBefore = gate.used();
 
   const preToolUse: HookCallback = async (hookInput) => {
     if (hookInput.hook_event_name !== "PreToolUse") return {};
@@ -186,9 +193,10 @@ export async function investigate(input: InvestigationInput): Promise<Investigat
   const timer = setTimeout(() => abort.abort(), limits.timeoutMs);
   const options: Options = {
     abortController: abort,
-    cwd: gitRoot,
+    cwd: input.gitRoot ?? root,
     model: input.model ?? "claude-opus-5-5",
     ...(input.effort && { effort: input.effort }),
+    ...(state.resume && { resume: state.resume }),
     systemPrompt: SYSTEM_PROMPT,
     settingSources: [],
     strictMcpConfig: true,
@@ -199,7 +207,7 @@ export async function investigate(input: InvestigationInput): Promise<Investigat
     permissionMode: "dontAsk",
     hooks: { PreToolUse: [{ hooks: [preToolUse] }] },
     // Turns are a backstop; the gate's tool-call count is the real cap.
-    maxTurns: limits.maxToolCalls + 4,
+    maxTurns: Math.max(limits.maxToolCalls - usedBefore, 0) + 4,
     maxBudgetUsd: limits.maxBudgetUsd,
     outputFormat: { type: "json_schema", schema: FINDING_JSON_SCHEMA },
   };
@@ -208,7 +216,7 @@ export async function investigate(input: InvestigationInput): Promise<Investigat
   let result: SDKResultMessage | undefined;
   let stop: string | undefined;
   try {
-    for await (const message of (input.run ?? query)({ prompt: buildPrompt(input.event, root, input.diff), options })) {
+    for await (const message of (input.run ?? query)({ prompt: state.prompt, options })) {
       if (message.type === "result") result = message;
     }
   } catch (e) {
@@ -218,7 +226,7 @@ export async function investigate(input: InvestigationInput): Promise<Investigat
   }
 
   const base = {
-    tool_calls: gate.used(),
+    tool_calls: gate.used() - usedBefore,
     refused,
     cost_usd: result?.total_cost_usd ?? null,
     num_turns: result?.num_turns ?? null,
@@ -233,4 +241,81 @@ export async function investigate(input: InvestigationInput): Promise<Investigat
   return checked.ok
     ? { status: "verified", finding: checked.finding, draft, errors: [], ...base }
     : { status: "rejected", draft, errors: checked.errors, ...base };
+}
+
+function firstAttempt(input: InvestigationInput): AttemptState {
+  const limits = { ...DEFAULT_LIMITS, ...input.limits };
+  const root = dirname(resolve(input.tsconfig));
+  const gate = createGate(readableFiles(input.event, input.diff, root, input.gitRoot ?? root), limits.maxToolCalls);
+  return { gate, limits, prompt: buildPrompt(input.event, root, input.diff) };
+}
+
+/** One session for one event, verified; no retry. */
+export function investigate(input: InvestigationInput): Promise<InvestigationResult> {
+  return attempt(input, firstAttempt(input));
+}
+
+/** The retry's message: the verifier's reasons, and what to do about them. */
+export function revisePrompt(errors: string[]): string {
+  return [
+    "A program checked your finding against the import graph and refused it:",
+    ...errors.map((e) => `- ${e}`),
+    "",
+    "Fix what these errors name. Copy each hop's line and statement from a tool result or from the facts you were given, or drop the loop. Then return the whole finding again.",
+  ].join("\n");
+}
+
+/**
+ * What goes on the PR for one event. "agent": a finding that passed the verifier.
+ * "deterministic": the agent had no verified finding, so only rie check's own
+ * facts are shown, without any of the agent's text.
+ */
+export type Explanation =
+  | { source: "agent"; finding: Finding; attempts: InvestigationResult[]; cost_usd: number | null }
+  | { source: "deterministic"; facts: Finding["facts"]; reason: string; attempts: InvestigationResult[]; cost_usd: number | null };
+
+/**
+ * Spend across attempts. A resumed session's result carries the session's running
+ * total (checked live: the retry reported $0.066 after a $0.030 first attempt, and
+ * the transcript's three API calls come to ~$0.057), so the largest figure is the total.
+ */
+function spent(attempts: InvestigationResult[]): number | null {
+  const costs = attempts.map((a) => a.cost_usd).filter((c): c is number => c !== null);
+  return costs.length === 0 ? null : Math.max(...costs);
+}
+
+/**
+ * The revise loop (plan, week 3): one session; if the verifier rejects its draft,
+ * one retry in the same session with the verifier's reasons, inside what is left
+ * of the caps. A second rejection, or a session that ends without a draft, falls
+ * back to the deterministic facts.
+ */
+export async function explain(input: InvestigationInput): Promise<Explanation> {
+  const state = firstAttempt(input);
+  const attempts = [await attempt(input, state)];
+  const done = (): Explanation => {
+    const last = attempts.at(-1)!;
+    if (last.status === "verified") return { source: "agent", finding: last.finding!, attempts, cost_usd: spent(attempts) };
+    const reason =
+      last.status === "rejected"
+        ? `the agent's finding failed verification${attempts.length > 1 ? " twice" : ""}: ${last.errors.join("; ")}`
+        : `the agent returned no finding (${last.stop})`;
+    return { source: "deterministic", facts: factsFromEvent(input.event), reason, attempts, cost_usd: spent(attempts) };
+  };
+
+  const first = attempts[0];
+  if (first.status !== "rejected" || !first.session_id) return done();
+  const budgetLeft = state.limits.maxBudgetUsd - (first.cost_usd ?? 0);
+  const timeLeft = state.limits.timeoutMs - first.wall_ms;
+  if (budgetLeft <= 0 || timeLeft <= 0) return done();
+
+  attempts.push(
+    await attempt(input, {
+      gate: state.gate,
+      limits: { ...state.limits, maxBudgetUsd: budgetLeft, timeoutMs: timeLeft },
+      prompt: revisePrompt(first.errors),
+      resume: first.session_id,
+    })
+  );
+  return done();
 }

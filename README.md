@@ -505,7 +505,7 @@ The other runs shared the CPU between two checkouts, so their timings aren't com
 
 ## Test suite
 
-`npm test` runs **385 tests in 21 files, all passing, plus 22 skipped** (vitest, 2026-10-12). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
+`npm test` runs **391 tests in 21 files, all passing, plus 22 skipped** (vitest, 2026-10-12). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
@@ -518,7 +518,7 @@ The other runs shared the CPU between two checkouts, so their timings aren't com
 | `src/check/cycle-events.test.ts` | `rie check` against every cycle event case: events, outcome and evidence (incl. which hops the PR added); per-repo outcome overrides | 17 |
 | `src/agent/finding.test.ts` | The investigation agent's finding format: facts from a `rie check` event, refusals (a suggestion marked verified, extra fields, loops that don't chain or close, non-JSON) | 4 |
 | `src/agent/verify.test.ts` | The verifier: every real `rie check` finding verifies (incl. renames and barrels); fabricated facts are refused with a reason (wrong line, misquoted statement, missing import, a loop through a type-only import labelled either way, a wrong added-in-PR claim, a loop the PR didn't touch, wrong event, unknown file) | 16 |
-| `src/agent/runtime.test.ts` | The agent runtime, with the SDK's `query` stubbed (no model): the tool gate (read-only rie tools, Read only on the finding's and diff's files, the tool-call cap), the session's isolation and caps, the finding schema it asks for, and that every draft is verified (verified, rejected with reasons, spend stop, time stop) | 8 |
+| `src/agent/runtime.test.ts` | The agent runtime, with the SDK's `query` stubbed (no model): the tool gate (read-only rie tools, Read only on the finding's and diff's files, the tool-call cap), the session's isolation and caps, the finding schema it asks for, that every draft is verified (verified, rejected with reasons, spend stop, time stop), and the revise loop (one retry in the same session with the verifier's reasons, inside what's left of the caps; a second rejection or no draft falls back to rie check's own facts) | 14 |
 | `src/check/git.test.ts` | `--base-ref`: merge base, renames from git, worktree and link cleanup; relative tsconfig paths; runtime names in the report | 3 |
 | `src/check/report.test.ts` | The PR comment: marker, event table strictest first, loops for fail and warn only, caps on long lists | 3 |
 | `benchmarks/replay/replay.test.ts` | Replay on a 4-commit repo: three-way comparison, unchanged commits, dynamic `import()` (madge disagrees), scoring; seeded cases of all three kinds | 3 |
