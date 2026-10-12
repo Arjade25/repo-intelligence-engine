@@ -82,6 +82,9 @@ describe("agent runtime: what the agent may touch", () => {
     expect(gate.decide("mcp__rie__dependency_path", {})).toEqual({ allow: true });
     expect(gate.used()).toBe(3);
     expect(gate.decide("mcp__rie__find_module", {})).toMatchObject({ allow: false, reason: expect.stringContaining("Write the finding now") });
+    // The answer itself goes through the SDK's StructuredOutput tool: allowed past the cap, never counted.
+    expect(gate.decide("StructuredOutput", { version: 1 })).toEqual({ allow: true });
+    expect(gate.used()).toBe(3);
     expect(READ_ONLY_MCP_TOOLS).not.toContain("mcp__rie__reindex");
   });
 
@@ -105,6 +108,7 @@ describe("agent runtime: what the agent may touch", () => {
     const schema = (o.outputFormat as unknown as { schema: { required: string[]; additionalProperties: boolean } }).schema;
     expect(schema.required).toEqual(["version", "event", "facts", "why_it_matters", "suggestions"]);
     expect(schema.additionalProperties).toBe(false);
+    expect(schema).not.toHaveProperty("$schema"); // the CLI rejects zod's draft 2020-12 URL
     expect(seen.prompt).toBe(buildPrompt(event, root, diff));
     expect(seen.prompt).toContain('"added_in_pr": true');
   });

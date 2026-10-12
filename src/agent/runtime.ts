@@ -104,16 +104,22 @@ export function readableFiles(event: CycleEvent, diff: string, root: string, git
   return [...new Set([...fromEvent, ...fromDiff].map(norm))].sort();
 }
 
+/** The tool the SDK adds for outputFormat; the agent answers by calling it. */
+export const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
+
 export type GateDecision = { allow: true } | { allow: false; reason: string };
 
 /**
  * The one place tool calls are allowed or refused: read-only MCP tools, and Read
- * on the listed files, up to the tool-call cap. Everything else is refused.
+ * on the listed files, up to the tool-call cap; and the structured-output tool,
+ * always. Everything else is refused.
  */
 export function createGate(allowedFiles: Iterable<string>, maxToolCalls: number) {
   const files = new Set([...allowedFiles].map(norm));
   let used = 0;
   const decide = (tool: string, input: unknown): GateDecision => {
+    // How the SDK delivers the structured output: the answer itself, never counted or capped.
+    if (tool === STRUCTURED_OUTPUT_TOOL) return { allow: true };
     if (used >= maxToolCalls) {
       return { allow: false, reason: `Tool-call limit (${maxToolCalls}) reached. Write the finding now from what you have.` };
     }
@@ -141,6 +147,13 @@ Return a finding in the required JSON format, in three parts kept apart:
 - suggestions: possible fixes, each with verified set to false. Nobody has checked them.
 
 Use few tool calls; the given facts are often enough. Never say a suggestion is tested or safe.`;
+
+/**
+ * The finding format as JSON Schema, for the SDK's structured output. zod stamps a
+ * draft 2020-12 "$schema" URL, which the CLI's validator rejects (no schema with
+ * that key); nothing in the schema needs that draft, so the key is dropped.
+ */
+const { $schema: _draft, ...FINDING_JSON_SCHEMA } = z.toJSONSchema(FindingSchema) as Record<string, unknown>;
 
 /** The first user message: the event, its proved facts, the repository root and the diff. */
 export function buildPrompt(event: CycleEvent, root: string, diff: string): string {
@@ -188,7 +201,7 @@ export async function investigate(input: InvestigationInput): Promise<Investigat
     // Turns are a backstop; the gate's tool-call count is the real cap.
     maxTurns: limits.maxToolCalls + 4,
     maxBudgetUsd: limits.maxBudgetUsd,
-    outputFormat: { type: "json_schema", schema: z.toJSONSchema(FindingSchema) as Record<string, unknown> },
+    outputFormat: { type: "json_schema", schema: FINDING_JSON_SCHEMA },
   };
 
   const started = Date.now();
