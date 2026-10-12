@@ -1,0 +1,572 @@
+{
+  "generated_by": "benchmarks/taskgen",
+  "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+  "tsconfig_flags": {
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "emitDecoratorMetadata": false,
+    "verbatimModuleSyntax": true,
+    "preserveValueImports": false,
+    "importsNotUsedAsValues": null,
+    "isolatedModules": false,
+    "preserveConstEnums": false
+  },
+  "params": {
+    "seed": 1,
+    "min_path": 6,
+    "min_hops": 5,
+    "min_closure": 25,
+    "max_per_category": 10,
+    "max_impact_candidates": 0
+  },
+  "stats": {
+    "files": 837,
+    "runtime_edges": 2237,
+    "source_edges": 2403,
+    "runtime_sccs": [
+      157,
+      30,
+      3,
+      3,
+      2
+    ],
+    "source_sccs": [
+      192,
+      32,
+      4,
+      2
+    ],
+    "cycle_trace": {
+      "candidates": 195,
+      "passed_min_path": 94,
+      "emitted": 10
+    },
+    "dependency_path": {
+      "candidates": 158740,
+      "passed_min_path": 110248,
+      "reachable_candidates": 105256,
+      "unreachable_candidates": 4992,
+      "max_hops": 16,
+      "emitted": 10
+    },
+    "runtime_type_trap": {
+      "candidates": 18839,
+      "passed_min_path": 18365,
+      "true_candidates": 12335,
+      "false_candidates": 6030,
+      "emitted": 10
+    },
+    "change_impact": {
+      "candidates": 0,
+      "passed_min_path": 0,
+      "dropped_broken_reexport": 0,
+      "emitted": 0
+    }
+  },
+  "tasks": [
+    {
+      "id": "directus-type-trap-001",
+      "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+      "prompt": "Is there a runtime circular dependency between src/ai/tools/fields/index.ts and src/controllers/users.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/ai/tools/fields/index.ts to src/controllers/users.ts, from src/controllers/users.ts to src/ai/tools/fields/index.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": true,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 192,
+        "min_path": 19,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 5
+      },
+      "expected": {
+        "answer": false,
+        "a": "src/ai/tools/fields/index.ts",
+        "b": "src/controllers/users.ts",
+        "graph": "source",
+        "a_to_b": [
+          "src/ai/tools/fields/index.ts",
+          "src/services/fields.ts",
+          "src/services/items.ts",
+          "src/utils/versioning/handle-version.ts",
+          "src/services/index.ts",
+          "src/services/server.ts",
+          "src/server.ts",
+          "src/app.ts",
+          "src/controllers/users.ts"
+        ],
+        "b_to_a": [
+          "src/controllers/users.ts",
+          "src/services/authentication.ts",
+          "src/license/manager.ts",
+          "src/services/index.ts",
+          "src/services/server.ts",
+          "src/server.ts",
+          "src/app.ts",
+          "src/ai/chat/router.ts",
+          "src/ai/chat/controllers/chat.post.ts",
+          "src/ai/chat/utils/chat-request-tool-to-ai-sdk-tool.ts",
+          "src/ai/tools/index.ts",
+          "src/ai/tools/fields/index.ts"
+        ],
+        "runtime_a_to_b": false,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "directus-type-trap-002",
+      "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+      "prompt": "Is there a runtime circular dependency between src/services/assets.ts and src/services/specifications.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/services/assets.ts to src/services/specifications.ts, from src/services/specifications.ts to src/services/assets.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": true,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 192,
+        "min_path": 9,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 1
+      },
+      "expected": {
+        "answer": false,
+        "a": "src/services/assets.ts",
+        "b": "src/services/specifications.ts",
+        "graph": "source",
+        "a_to_b": [
+          "src/services/assets.ts",
+          "src/services/files.ts",
+          "src/services/items.ts",
+          "src/utils/versioning/handle-version.ts",
+          "src/services/index.ts",
+          "src/services/specifications.ts"
+        ],
+        "b_to_a": [
+          "src/services/specifications.ts",
+          "src/services/graphql/index.ts",
+          "src/utils/get-service.ts",
+          "src/services/index.ts",
+          "src/services/assets.ts"
+        ],
+        "runtime_a_to_b": false,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "directus-type-trap-003",
+      "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+      "prompt": "Is there a runtime circular dependency between src/controllers/mcp/index.ts and src/controllers/server.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/mcp/index.ts to src/controllers/server.ts, from src/controllers/server.ts to src/controllers/mcp/index.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": true,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 157,
+        "min_path": 11,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 2
+      },
+      "expected": {
+        "answer": true,
+        "a": "src/controllers/mcp/index.ts",
+        "b": "src/controllers/server.ts",
+        "graph": "runtime",
+        "a_to_b": [
+          "src/controllers/mcp/index.ts",
+          "src/ai/mcp/index.ts",
+          "src/ai/mcp/server.ts",
+          "src/services/index.ts",
+          "src/services/server.ts",
+          "src/server.ts",
+          "src/app.ts",
+          "src/controllers/server.ts"
+        ],
+        "b_to_a": [
+          "src/controllers/server.ts",
+          "src/services/server.ts",
+          "src/server.ts",
+          "src/app.ts",
+          "src/controllers/mcp/index.ts"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "directus-type-trap-004",
+      "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+      "prompt": "Is there a runtime circular dependency between src/extensions/lib/get-extensions-settings.ts and src/license/utils/get-core-grace-expires-at.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/extensions/lib/get-extensions-settings.ts to src/license/utils/get-core-grace-expires-at.ts, from src/license/utils/get-core-grace-expires-at.ts to src/extensions/lib/get-extensions-settings.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": true,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 192,
+        "min_path": 16,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 3
+      },
+      "expected": {
+        "answer": false,
+        "a": "src/extensions/lib/get-extensions-settings.ts",
+        "b": "src/license/utils/get-core-grace-expires-at.ts",
+        "graph": "source",
+        "a_to_b": [
+          "src/extensions/lib/get-extensions-settings.ts",
+          "src/services/extensions.ts",
+          "src/extensions/index.ts",
+          "src/extensions/manager.ts",
+          "src/services/index.ts",
+          "src/services/authentication.ts",
+          "src/license/manager.ts",
+          "src/license/utils/compute-license-status.ts",
+          "src/license/utils/is-in-core-grace-period.ts",
+          "src/license/utils/get-core-grace-expires-at.ts"
+        ],
+        "b_to_a": [
+          "src/license/utils/get-core-grace-expires-at.ts",
+          "src/services/items.ts",
+          "src/utils/versioning/handle-version.ts",
+          "src/services/index.ts",
+          "src/services/extensions.ts",
+          "src/extensions/index.ts",
+          "src/extensions/manager.ts",
+          "src/extensions/lib/get-extensions-settings.ts"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": false
+      }
+    },
+    {
+      "id": "directus-type-trap-005",
+      "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+      "prompt": "Is there a runtime circular dependency between src/controllers/notifications.ts and src/license/utils/get-core-grace-expires-at.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/notifications.ts to src/license/utils/get-core-grace-expires-at.ts, from src/license/utils/get-core-grace-expires-at.ts to src/controllers/notifications.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": true,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 192,
+        "min_path": 14,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 1
+      },
+      "expected": {
+        "answer": false,
+        "a": "src/controllers/notifications.ts",
+        "b": "src/license/utils/get-core-grace-expires-at.ts",
+        "graph": "source",
+        "a_to_b": [
+          "src/controllers/notifications.ts",
+          "src/services/notifications.ts",
+          "src/services/users.ts",
+          "src/license/index.ts",
+          "src/license/manager.ts",
+          "src/license/utils/compute-license-status.ts",
+          "src/license/utils/is-in-core-grace-period.ts",
+          "src/license/utils/get-core-grace-expires-at.ts"
+        ],
+        "b_to_a": [
+          "src/license/utils/get-core-grace-expires-at.ts",
+          "src/services/items.ts",
+          "src/utils/versioning/handle-version.ts",
+          "src/services/index.ts",
+          "src/services/server.ts",
+          "src/server.ts",
+          "src/app.ts",
+          "src/controllers/notifications.ts"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": false
+      }
+    },
+    {
+      "id": "directus-type-trap-006",
+      "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+      "prompt": "Is there a runtime circular dependency between src/services/relations.ts and src/websocket/controllers/base.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/services/relations.ts to src/websocket/controllers/base.ts, from src/websocket/controllers/base.ts to src/services/relations.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": true,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 192,
+        "min_path": 9,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 4
+      },
+      "expected": {
+        "answer": false,
+        "a": "src/services/relations.ts",
+        "b": "src/websocket/controllers/base.ts",
+        "graph": "source",
+        "a_to_b": [
+          "src/services/relations.ts",
+          "src/services/items.ts",
+          "src/utils/versioning/handle-version.ts",
+          "src/services/index.ts",
+          "src/services/websocket.ts",
+          "src/websocket/controllers/rest.ts",
+          "src/websocket/controllers/base.ts"
+        ],
+        "b_to_a": [
+          "src/websocket/controllers/base.ts",
+          "src/license/manager.ts",
+          "src/services/index.ts",
+          "src/services/relations.ts"
+        ],
+        "runtime_a_to_b": false,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "directus-type-trap-007",
+      "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+      "prompt": "Is there a runtime circular dependency between src/services/import/import.ts and src/websocket/handlers/subscribe.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/services/import/import.ts to src/websocket/handlers/subscribe.ts, from src/websocket/handlers/subscribe.ts to src/services/import/import.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": true,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 157,
+        "min_path": 9,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 3
+      },
+      "expected": {
+        "answer": true,
+        "a": "src/services/import/import.ts",
+        "b": "src/websocket/handlers/subscribe.ts",
+        "graph": "runtime",
+        "a_to_b": [
+          "src/services/import/import.ts",
+          "src/utils/get-service.ts",
+          "src/services/index.ts",
+          "src/services/server.ts",
+          "src/server.ts",
+          "src/websocket/handlers/index.ts",
+          "src/websocket/handlers/subscribe.ts"
+        ],
+        "b_to_a": [
+          "src/websocket/handlers/subscribe.ts",
+          "src/websocket/utils/items.ts",
+          "src/services/index.ts",
+          "src/services/import/import.ts"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "directus-type-trap-008",
+      "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+      "prompt": "Is there a runtime circular dependency between src/controllers/collections.ts and src/license/entitlements/manager.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/collections.ts to src/license/entitlements/manager.ts, from src/license/entitlements/manager.ts to src/controllers/collections.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": true,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 157,
+        "min_path": 9,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 1
+      },
+      "expected": {
+        "answer": true,
+        "a": "src/controllers/collections.ts",
+        "b": "src/license/entitlements/manager.ts",
+        "graph": "runtime",
+        "a_to_b": [
+          "src/controllers/collections.ts",
+          "src/services/collections.ts",
+          "src/license/index.ts",
+          "src/license/entitlements/manager.ts"
+        ],
+        "b_to_a": [
+          "src/license/entitlements/manager.ts",
+          "src/license/entitlements/lib/collections.ts",
+          "src/services/index.ts",
+          "src/services/server.ts",
+          "src/server.ts",
+          "src/app.ts",
+          "src/controllers/collections.ts"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "directus-type-trap-009",
+      "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+      "prompt": "Is there a runtime circular dependency between src/controllers/items.ts and src/services/collections.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/controllers/items.ts to src/services/collections.ts, from src/services/collections.ts to src/controllers/items.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": true,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 157,
+        "min_path": 11,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 1
+      },
+      "expected": {
+        "answer": true,
+        "a": "src/controllers/items.ts",
+        "b": "src/services/collections.ts",
+        "graph": "runtime",
+        "a_to_b": [
+          "src/controllers/items.ts",
+          "src/middleware/is-locked.ts",
+          "src/license/manager.ts",
+          "src/services/index.ts",
+          "src/services/collections.ts"
+        ],
+        "b_to_a": [
+          "src/services/collections.ts",
+          "src/license/index.ts",
+          "src/license/manager.ts",
+          "src/services/index.ts",
+          "src/services/server.ts",
+          "src/server.ts",
+          "src/app.ts",
+          "src/controllers/items.ts"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "directus-type-trap-010",
+      "repo": "directus/directus@1694b19048c8523bc90dd1fd11566b748b155ec4",
+      "prompt": "Is there a runtime circular dependency between src/middleware/cache.ts and src/services/mcp-oauth/index.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/middleware/cache.ts to src/services/mcp-oauth/index.ts, from src/services/mcp-oauth/index.ts to src/middleware/cache.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `src`; exclude `**/*.test.ts`, `**/__tests__/**`, `**/__mocks__/**`, `**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": true,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 157,
+        "min_path": 17,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 0
+      },
+      "expected": {
+        "answer": true,
+        "a": "src/middleware/cache.ts",
+        "b": "src/services/mcp-oauth/index.ts",
+        "graph": "runtime",
+        "a_to_b": [
+          "src/middleware/cache.ts",
+          "src/license/index.ts",
+          "src/license/manager.ts",
+          "src/services/index.ts",
+          "src/services/server.ts",
+          "src/server.ts",
+          "src/app.ts",
+          "src/controllers/mcp/oauth.ts",
+          "src/services/mcp-oauth/index.ts"
+        ],
+        "b_to_a": [
+          "src/services/mcp-oauth/index.ts",
+          "src/services/activity.ts",
+          "src/utils/get-history-filter-query.ts",
+          "src/license/index.ts",
+          "src/license/manager.ts",
+          "src/services/index.ts",
+          "src/services/server.ts",
+          "src/server.ts",
+          "src/app.ts",
+          "src/middleware/cache.ts"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": true
+      }
+    }
+  ]
+}
