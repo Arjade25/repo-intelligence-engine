@@ -1,0 +1,65 @@
+{
+  "repo": "https://github.com/element-hq/element-web.git",
+  "commit": "526b4b8c330482a97adba4869b90e5f28f0f0f20",
+  "parent": "4462d6914cd67553ddeec7b139ae791f0600838c",
+  "subject": "Room list: remove usage of old room list store in `LoggedInView` & `InviteDialog` (#33973)",
+  "tsconfig": "apps/web/tsconfig.rie.json",
+  "rie": {
+    "outcome": "fail",
+    "events": [
+      "cycle_grown (fail): 126 -> 136 files"
+    ],
+    "largest_group": {
+      "base": 126,
+      "pr": 136
+    },
+    "ms": 47193,
+    "joined": [
+      "src/stores/room-list-v3/RoomListStoreV3.ts",
+      "src/stores/room-list-v3/section.ts",
+      "src/stores/room-list-v3/skip-list/RoomNode.ts",
+      "src/stores/room-list-v3/skip-list/RoomSkipList.ts",
+      "src/stores/room-list-v3/skip-list/filters/MentionsFilter.ts",
+      "src/stores/room-list-v3/skip-list/filters/UnreadFilter.ts",
+      "src/stores/room-list-v3/skip-list/sorters/BaseRecencySorter.ts",
+      "src/stores/room-list-v3/skip-list/sorters/RecencySorter.ts",
+      "src/stores/room-list-v3/skip-list/sorters/UnreadSorter.ts",
+      "src/stores/room-list-v3/skip-list/sorters/utils/getLastTimestamp.ts"
+    ],
+    "warnings": []
+  },
+  "oracle": {
+    "outcome": "fail",
+    "events": [
+      "cycle_grown (fail): 126 -> 136 files"
+    ],
+    "largest_group": {
+      "base": 126,
+      "pr": 136
+    },
+    "ms": 115655
+  },
+  "madge": {
+    "outcome": "pass",
+    "events": [
+      "no_regression (pass)"
+    ],
+    "largest_group": {
+      "base": 195,
+      "pr": 195
+    },
+    "ms": 83096,
+    "joined_files_already_in_a_madge_cycle_on_base": [
+      "src/stores/room-list-v3/RoomListStoreV3.ts",
+      "src/stores/room-list-v3/section.ts",
+      "src/stores/room-list-v3/skip-list/RoomNode.ts",
+      "src/stores/room-list-v3/skip-list/RoomSkipList.ts",
+      "src/stores/room-list-v3/skip-list/filters/MentionsFilter.ts",
+      "src/stores/room-list-v3/skip-list/filters/UnreadFilter.ts",
+      "src/stores/room-list-v3/skip-list/sorters/BaseRecencySorter.ts",
+      "src/stores/room-list-v3/skip-list/sorters/RecencySorter.ts",
+      "src/stores/room-list-v3/skip-list/sorters/UnreadSorter.ts",
+      "src/stores/room-list-v3/skip-list/sorters/utils/getLastTimestamp.ts"
+    ]
+  }
+}

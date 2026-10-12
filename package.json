@@ -19,6 +19,7 @@
     "oracle": "tsx benchmarks/oracle/compare.ts",
     "screen": "tsx benchmarks/oracle/screen.ts",
     "replay": "tsx benchmarks/replay/cli.ts",
+    "demo": "tsx benchmarks/demo/cli.ts",
     "taskgen": "tsx benchmarks/taskgen/cli.ts",
     "harness": "tsx benchmarks/harness/cli.ts",
     "regrade": "tsx benchmarks/harness/regrade.ts",

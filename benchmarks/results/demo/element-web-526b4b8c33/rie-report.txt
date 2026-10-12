@@ -1,0 +1,11 @@
+rie check: FAIL
+
+FAIL  cycle_grown: cycle of 126 files grew to 136
+  joined: src/stores/room-list-v3/RoomListStoreV3.ts, src/stores/room-list-v3/section.ts, src/stores/room-list-v3/skip-list/RoomNode.ts, src/stores/room-list-v3/skip-list/RoomSkipList.ts, src/stores/room-list-v3/skip-list/filters/MentionsFilter.ts, src/stores/room-list-v3/skip-list/filters/UnreadFilter.ts, src/stores/room-list-v3/skip-list/sorters/BaseRecencySorter.ts, src/stores/room-list-v3/skip-list/sorters/RecencySorter.ts, src/stores/room-list-v3/skip-list/sorters/UnreadSorter.ts, src/stores/room-list-v3/skip-list/sorters/utils/getLastTimestamp.ts
+  loop (6 files): src/components/views/dialogs/InviteDialog.tsx -> src/stores/room-list-v3/RoomListStoreV3.ts -> src/stores/spaces/SpaceStore.ts -> src/components/views/rooms/LegacyRoomList.tsx -> src/utils/space.tsx -> src/RoomInvite.tsx -> src/components/views/dialogs/InviteDialog.tsx
+    src/components/views/dialogs/InviteDialog.tsx:29  import RoomListStoreV3 from "../../../stores/room-list-v3/RoomListStoreV3";  (runtime: default)
+    src/stores/room-list-v3/RoomListStoreV3.ts:22     import SpaceStore from "../spaces/SpaceStore";  (runtime: default)
+    src/stores/spaces/SpaceStore.ts:38                import { TAG_ORDER } from "../../components/views/rooms/LegacyRoomList";  (runtime: TAG_ORDER)
+    src/components/views/rooms/LegacyRoomList.tsx:52  import { shouldShowSpaceInvite, showAddExistingRooms, showCreateNewRoom, showSpaceInvite, } from "../../../utils/space.tsx";  (runtime: shouldShowSpaceInvite, showAddExistingRooms, showCreateNewRoom, showSpaceInvite)
+    src/utils/space.tsx:20                            import { showRoomInviteDialog } from "../RoomInvite";  (runtime: showRoomInviteDialog)
+    src/RoomInvite.tsx:16                             import InviteDialog from "./components/views/dialogs/InviteDialog";  (runtime: default)
