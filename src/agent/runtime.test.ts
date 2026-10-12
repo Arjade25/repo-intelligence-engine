@@ -4,7 +4,7 @@ import type { HookCallback, Options, SDKMessage } from "@anthropic-ai/claude-age
 import { compareSnapshots, indexSnapshot, type Snapshot } from "../check/index.js";
 import { CYCLE_EVENT_CASES, materialize } from "../check/cycle-events.cases.js";
 import { factsFromEvent, type Finding } from "./finding.js";
-import { buildPrompt, createGate, diffFiles, explain, investigate, READ_ONLY_MCP_TOOLS, readableFiles, revisePrompt, type InvestigationInput } from "./runtime.js";
+import { buildPrompt, createGate, diffFiles, explain, investigate, promptDiff, READ_ONLY_MCP_TOOLS, readableFiles, revisePrompt, type InvestigationInput } from "./runtime.js";
 
 const c = CYCLE_EVENT_CASES.find((x) => x.name === "cycle_grown")!;
 const baseTsconfig = materialize(c.base, "runtime-base");
@@ -111,6 +111,18 @@ describe("agent runtime: what the agent may touch", () => {
     expect(schema).not.toHaveProperty("$schema"); // the CLI rejects zod's draft 2020-12 URL
     expect(seen.prompt).toBe(buildPrompt(event, root, diff));
     expect(seen.prompt).toContain('"added_in_pr": true');
+  });
+});
+
+describe("agent runtime: the diff in the prompt", () => {
+  it("keeps a short diff whole, and only the finding's files of a long one", () => {
+    expect(promptDiff(diff, () => false)).toBe(diff);
+    const filler = (path: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n${"+x\n".repeat(20_000)}`;
+    const long = [filler("src/big.ts"), diff].join("\n");
+    const kept = promptDiff(long, (p) => p === "src/b.ts" || p === "src/d.ts");
+    expect(kept).toContain('+import { d } from "./d.js";');
+    expect(kept).not.toContain("src/big.ts");
+    expect(kept).toMatch(/\(1 other file\(s\) changed by this PR are left out of this diff, which was \d+ characters\.\)$/);
   });
 });
 

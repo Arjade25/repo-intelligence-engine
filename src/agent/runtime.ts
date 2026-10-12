@@ -155,14 +155,35 @@ Use few tool calls; the given facts are often enough. Never say a suggestion is 
  */
 const { $schema: _draft, ...FINDING_JSON_SCHEMA } = z.toJSONSchema(FindingSchema) as Record<string, unknown>;
 
+/** Diffs longer than this keep only the files in the finding; a large refactor's full diff would cost more than it explains. */
+export const MAX_DIFF_CHARS = 50_000;
+
+/**
+ * The diff as the agent sees it: whole when it is short; otherwise only the
+ * sections for files in the finding (per `diff --git` header), with a line saying
+ * how many other files were left out.
+ */
+export function promptDiff(diff: string, keep: (path: string) => boolean): string {
+  const text = diff.trim();
+  if (text.length <= MAX_DIFF_CHARS) return text || "(empty)";
+  const sections = text.split(/^(?=diff --git )/m);
+  const kept = sections.filter((s) => {
+    const m = /^diff --git a\/.+? b\/(.+)$/m.exec(s);
+    return m !== null && keep(m[1]);
+  });
+  const omitted = sections.length - kept.length;
+  return [...kept.map((s) => s.trimEnd()), `(${omitted} other file(s) changed by this PR are left out of this diff, which was ${text.length} characters.)`].join("\n");
+}
+
 /** The first user message: the event, its proved facts, the repository root and the diff. */
-export function buildPrompt(event: CycleEvent, root: string, diff: string): string {
+export function buildPrompt(event: CycleEvent, root: string, diff: string, gitRoot = root): string {
   const { evidence: _, ...summary } = event;
+  const inFinding = new Set([...(event.evidence ?? []).flatMap((e) => e.loop), ...(event.joined ?? [])].map((f) => norm(resolve(root, f))));
   return [
     `Repository root: ${root.replace(/\\/g, "/")}`,
     `Event:\n${JSON.stringify(summary, null, 2)}`,
     `Facts rie check proved:\n${JSON.stringify(factsFromEvent(event), null, 2)}`,
-    `PR diff:\n${diff.trim() || "(empty)"}`,
+    `PR diff:\n${promptDiff(diff, (path) => inFinding.has(norm(resolve(gitRoot, path))))}`,
   ].join("\n\n");
 }
 
@@ -247,7 +268,7 @@ function firstAttempt(input: InvestigationInput): AttemptState {
   const limits = { ...DEFAULT_LIMITS, ...input.limits };
   const root = dirname(resolve(input.tsconfig));
   const gate = createGate(readableFiles(input.event, input.diff, root, input.gitRoot ?? root), limits.maxToolCalls);
-  return { gate, limits, prompt: buildPrompt(input.event, root, input.diff) };
+  return { gate, limits, prompt: buildPrompt(input.event, root, input.diff, input.gitRoot ?? root) };
 }
 
 /** One session for one event, verified; no retry. */
