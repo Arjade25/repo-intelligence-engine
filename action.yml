@@ -1,0 +1,124 @@
+name: rie check
+description: Fail a pull request that makes runtime import cycles worse than its base branch, with the import line behind every loop. No model involved.
+author: Arjade25
+
+inputs:
+  tsconfig:
+    description: The tsconfig to check, relative to the repository root.
+    default: tsconfig.json
+  base-ref:
+    description: What the PR is compared against (its merge base with this ref). Defaults to the PR's base branch.
+    default: ""
+  outcomes:
+    description: Per-repo outcome overrides, e.g. "cycle_grown:warn,loop_shortened:fail".
+    default: ""
+  fail-on:
+    description: Fail the job on "fail" only, or on "warn" too.
+    default: fail
+  comment:
+    description: >-
+      "auto" posts a PR comment on a fail or warn and keeps it updated on later pushes (a later pass
+      updates it too); "always" also posts on a first pass; "never" writes only the job summary.
+    default: auto
+  github-token:
+    description: Token for the PR comment. Needs pull-requests write.
+    default: ${{ github.token }}
+
+outputs:
+  outcome:
+    description: fail, warn or pass.
+    value: ${{ steps.check.outputs.outcome }}
+  report:
+    description: Path of the JSON result.
+    value: ${{ steps.check.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    # Run after the repo's own dependency install: deciding which imports are
+    # erased at compile time needs every import resolved.
+    - name: Build rie
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        major="$(node -p 'process.versions.node.split(".")[0]')"
+        if [ "$major" -lt 20 ]; then echo "::error::rie check needs Node 20 or later, found $(node -v)"; exit 1; fi
+        if [ ! -d node_modules ]; then npm ci --no-audit --no-fund; fi
+        if [ ! -f dist/check/cli.js ]; then npm run build; fi
+
+    - name: Fetch the base branch
+      shell: bash
+      run: |
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          git fetch --no-tags --unshallow origin
+        fi
+        if [ -n "$GITHUB_BASE_REF" ]; then
+          git fetch --no-tags origin "+refs/heads/$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
+        fi
+
+    - name: Run rie check
+      id: check
+      shell: bash
+      env:
+        TSCONFIG: ${{ inputs.tsconfig }}
+        BASE_REF: ${{ inputs.base-ref }}
+        OUTCOMES: ${{ inputs.outcomes }}
+      run: |
+        base="${BASE_REF:-origin/$GITHUB_BASE_REF}"
+        if [ "$base" = "origin/" ]; then echo "::error::not a pull_request run: set the base-ref input"; exit 1; fi
+        md="$RUNNER_TEMP/rie-check.md"
+        json="$RUNNER_TEMP/rie-check.json"
+        rm -f "$md" "$json"
+        set +e
+        node "$GITHUB_ACTION_PATH/dist/check/cli.js" --pr="$TSCONFIG" --base-ref="$base" \
+          ${OUTCOMES:+--outcome="$OUTCOMES"} --markdown-out="$md" --json-out="$json"
+        code=$?
+        set -e
+        # Exit 1 also means a crash; only a written result says the check ran.
+        if [ ! -f "$json" ]; then echo "::error::rie check didn't produce a result (exit $code)"; exit 1; fi
+        outcome="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).outcome' "$json")"
+        echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+        echo "report=$json" >> "$GITHUB_OUTPUT"
+        echo "markdown=$md" >> "$GITHUB_OUTPUT"
+        cat "$md" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Comment on the PR
+      if: inputs.comment != 'never' && github.event.pull_request
+      uses: actions/github-script@v7
+      env:
+        REPORT: ${{ steps.check.outputs.markdown }}
+        OUTCOME: ${{ steps.check.outputs.outcome }}
+        MODE: ${{ inputs.comment }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const body = require("fs").readFileSync(process.env.REPORT, "utf8");
+          const issue = { ...context.repo, issue_number: context.payload.pull_request.number };
+          try {
+            const comments = await github.paginate(github.rest.issues.listComments, { ...issue, per_page: 100 });
+            const mine = comments.find((c) => c.user?.type === "Bot" && c.body?.startsWith("<!-- rie-check -->"));
+            if (mine) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: mine.id, body });
+            } else if (process.env.MODE === "always" || process.env.OUTCOME !== "pass") {
+              await github.rest.issues.createComment({ ...issue, body });
+            }
+          } catch (err) {
+            // A PR from a fork gets a read-only token; the job summary still has the report.
+            core.warning(`rie check couldn't comment on the PR (${err.message}); the report is in the job summary.`);
+          }
+
+    - name: Set the result
+      shell: bash
+      env:
+        OUTCOME: ${{ steps.check.outputs.outcome }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        if [ "$OUTCOME" = "fail" ] || { [ "$FAIL_ON" = "warn" ] && [ "$OUTCOME" = "warn" ]; }; then
+          echo "::error::rie check: $OUTCOME - this PR makes runtime import cycles worse (see the job summary)"
+          exit 1
+        fi
+        echo "rie check: $OUTCOME"
+
+branding:
+  icon: git-pull-request
+  color: orange

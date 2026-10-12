@@ -233,7 +233,9 @@ export function runClaude(claudeBin: string, req: ClaudeRunRequest): ClaudeRunOu
   // that gave no answer - a wrong run, not a failed launch for --resume to retry.
   const capped = parsed.subtype === "error_max_turns";
   if (result.status !== 0 && !capped) {
-    throw new Error(`claude exited ${result.status}${result.signal ? ` (signal ${result.signal})` : ""}: ${result.stderr || "(no stderr)"}`);
+    // With no stderr, whatever stdout said (an error result's text) is the only clue to why.
+    const said = result.stderr || (parsed.result ? `(no stderr) stdout: ${parsed.result.slice(0, 300)}` : "(no stderr, no stdout)");
+    throw new Error(`claude exited ${result.status}${result.signal ? ` (signal ${result.signal})` : ""}: ${said}`);
   }
 
   return {
