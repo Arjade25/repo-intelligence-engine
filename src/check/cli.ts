@@ -11,12 +11,17 @@
  *          --outcome=cycle_grown:warn,loop_shortened:fail (per-repo outcome overrides)
  *          --markdown-out=<file>, --json-out=<file> (also write the PR-comment markdown or the
  *          full result there; the GitHub Action posts the first and reads the outcome from the second)
+ *          --explain (on a fail or warn, run the investigation agent on each finding; the
+ *          explanations go into the markdown and JSON. It never changes the outcome)
+ *            --explain-max=3 (findings explained), --explain-budget=0.5 (USD per finding),
+ *            --explain-model=<id>, --diff=<file> (the PR's diff, with --base; --base-ref reads it from git)
  * Exit code: 1 when the outcome is fail, 0 for warn and pass, 2 on a usage error.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { checkCycles, DEFAULT_OUTCOMES, indexSnapshot, loopEvidence, type CycleEventType, type Outcome } from "./index.js";
-import { checkAgainstRef } from "./git.js";
+import type { PrExplanation } from "../agent/pr.js";
+import { checkCycles, checkCyclesOpen, DEFAULT_OUTCOMES, indexSnapshot, loopEvidence, type CycleCheckResult, type CycleEventType, type Outcome } from "./index.js";
+import { checkAgainstRef, checkAgainstRefOpen, prDiff } from "./git.js";
 import { formatLoop, formatMarkdown, formatReport } from "./report.js";
 
 const args = process.argv.slice(2);
@@ -69,16 +74,54 @@ if (!pr) {
 const baseRef = flag("base-ref");
 const base = flag("base");
 if (!baseRef === !base) usage("pass exactly one of --base-ref and --base");
-const result = baseRef
-  ? checkAgainstRef({ pr, baseRef, outcomes })
-  : checkCycles({ base: base!, pr, outcomes, renames: flag("renames") ? JSON.parse(readFileSync(flag("renames")!, "utf8")) : undefined });
+const renamesFile = flag("renames");
+const renames = renamesFile ? JSON.parse(readFileSync(renamesFile, "utf8")) : undefined;
+const number = (name: string, fallback: number) => {
+  const v = flag(name);
+  if (v === undefined) return fallback;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) usage(`--${name}: "${v}" must be a positive number`);
+  return n;
+};
 
-console.log(json ? JSON.stringify(result, null, 2) : formatReport(result));
+let result: CycleCheckResult & { base_commit?: string };
+let explanations: PrExplanation[] | undefined;
+if (!args.includes("--explain")) {
+  result = baseRef ? checkAgainstRef({ pr, baseRef, outcomes }) : checkCycles({ base: base!, pr, outcomes, renames });
+} else {
+  // Keep both indexes open: the agent queries the PR's, the verifier checks against both.
+  const open = baseRef ? checkAgainstRefOpen({ pr, baseRef, outcomes }) : { ...checkCyclesOpen({ base: base!, pr, outcomes, renames }), gitRoot: undefined };
+  result = open.result;
+  try {
+    if (result.outcome !== "pass") {
+      const diffFile = flag("diff");
+      const diff = diffFile ? readFileSync(diffFile, "utf8") : open.gitRoot && result.base_commit ? prDiff(open.gitRoot, result.base_commit) : "";
+      // Loaded only here, so a plain check never loads the Agent SDK.
+      const { explainEvents } = await import("../agent/pr.js");
+      explanations = await explainEvents({
+        result,
+        pr: open.pr,
+        base: open.base,
+        renames: "renames" in result ? (result.renames as Record<string, string>) : renames,
+        tsconfig: pr,
+        diff,
+        gitRoot: open.gitRoot,
+        maxEvents: number("explain-max", 3),
+        model: flag("explain-model"),
+        limits: { maxBudgetUsd: number("explain-budget", 0.5) },
+        log: (line) => console.error(line),
+      });
+    }
+  } finally {
+    open.base.db.close();
+    open.pr.db.close();
+  }
+}
+
+const full = JSON.stringify({ ...result, ...(explanations && { explanations }) }, null, 2);
+console.log(json ? full : formatReport(result));
 const markdownOut = flag("markdown-out");
 const jsonOut = flag("json-out");
-if (markdownOut) {
-  const baseCommit = "base_commit" in result ? (result.base_commit as string) : undefined;
-  writeFileSync(markdownOut, formatMarkdown(result, { baseCommit, baseRef }) + "\n");
-}
-if (jsonOut) writeFileSync(jsonOut, JSON.stringify(result, null, 2) + "\n");
+if (markdownOut) writeFileSync(markdownOut, `${formatMarkdown(result, { baseCommit: result.base_commit, baseRef }, explanations)}\n`);
+if (jsonOut) writeFileSync(jsonOut, `${full}\n`);
 process.exit(result.outcome === "fail" ? 1 : 0);

@@ -453,6 +453,13 @@ jobs:
 | `outcomes` | none | Per-repo overrides, e.g. `cycle_grown:warn` |
 | `fail-on` | `fail` | `warn` fails the job on warnings too |
 | `comment` | `auto` | `always` also comments on a first pass; `never` writes only the job summary |
+| `explain` | `false` | `true` runs the investigation agent on each fail or warn finding (below) |
+| `anthropic-api-key` | none | The agent's key, e.g. `${{ secrets.ANTHROPIC_API_KEY }}`; without one, nothing is explained |
+| `explain-max` | `3` | Findings explained per run |
+| `explain-budget-usd` | `0.5` | Spend cap per finding, retry included |
+| `explain-model` | `claude-opus-5-5` | The agent's model |
+
+**Explaining findings (`explain: true`).** The check alone decides the outcome; the agent only explains. For each fail or warn finding, one Claude Agent SDK session gets the event, the facts the check proved and the PR's diff. It queries the PR's index through the rie MCP server (read-only tools; it can Read only the finding's and the diff's files), within caps on tool calls (10), spend and time. Its answer has three parts: facts (each loop, hop by hop), an explanation, and suggestions. A verifier checks every hop against the graph with no model: the import exists at that line, with that statement, survives compilation, and was or wasn't added by the PR as claimed. A rejected draft gets one retry with the verifier's reasons. If that fails too, the comment shows only the check's own findings, with none of the agent's text. Otherwise the comment adds "Explanation (verified facts)" and "Suggestions (not verified)" under the check's loops. The agent's text is escaped before posting: no HTML and no @-mentions. On the `cycle_grown` fixture, one explanation took 10 s and $0.03. Only the facts are verified: the prose can still overstate (one run said a fixture import would fail at load time, though the imported name is only read inside a function).
 
 Outputs are `outcome` (`fail`, `warn` or `pass`) and `report`, the path of the JSON result. It uses the runner's Node, 20 or later, and doesn't change it for later steps. A PR from a fork gets a read-only token, so it can't comment, and the report stays in the job summary. `.github/workflows/rie-check.yml` runs the action on this repo's own PRs. Its first local run found a 2-file runtime cycle already on `main`, `src/indexer/index.ts` ↔ `src/indexer/resolution.ts`, which passes because old cycles never fail a PR.
 
@@ -505,7 +512,7 @@ The other runs shared the CPU between two checkouts, so their timings aren't com
 
 ## Test suite
 
-`npm test` runs **391 tests in 21 files, all passing, plus 22 skipped** (vitest, 2026-10-12). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
+`npm test` runs **399 tests in 22 files, all passing, plus 22 skipped** (vitest, 2026-10-13). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
@@ -519,6 +526,7 @@ The other runs shared the CPU between two checkouts, so their timings aren't com
 | `src/agent/finding.test.ts` | The investigation agent's finding format: facts from a `rie check` event, refusals (a suggestion marked verified, extra fields, loops that don't chain or close, non-JSON) | 4 |
 | `src/agent/verify.test.ts` | The verifier: every real `rie check` finding verifies (incl. renames and barrels); fabricated facts are refused with a reason (wrong line, misquoted statement, missing import, a loop through a type-only import labelled either way, a wrong added-in-PR claim, a loop the PR didn't touch, wrong event, unknown file) | 16 |
 | `src/agent/runtime.test.ts` | The agent runtime, with the SDK's `query` stubbed (no model): the tool gate (read-only rie tools, Read only on the finding's and diff's files, the tool-call cap), the session's isolation and caps, the finding schema it asks for, that every draft is verified (verified, rejected with reasons, spend stop, time stop), and the revise loop (one retry in the same session with the verifier's reasons, inside what's left of the caps; a second rejection or no draft falls back to rie check's own facts) | 14 |
+| `src/agent/pr.test.ts` | The agent on a PR: only fail and warn findings are explained, up to the limit; an agent that throws leaves the check's facts; the comment puts the check's loops first, then "Explanation (verified facts)", then "Suggestions (not verified)", shows none of the agent's text without a verified finding, and escapes HTML and @-mentions | 8 |
 | `src/check/git.test.ts` | `--base-ref`: merge base, renames from git, worktree and link cleanup; relative tsconfig paths; runtime names in the report | 3 |
 | `src/check/report.test.ts` | The PR comment: marker, event table strictest first, loops for fail and warn only, caps on long lists | 3 |
 | `benchmarks/replay/replay.test.ts` | Replay on a 4-commit repo: three-way comparison, unchanged commits, dynamic `import()` (madge disagrees), scoring; seeded cases of all three kinds | 3 |

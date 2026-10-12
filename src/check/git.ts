@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
-import { checkCycles, type CycleCheckInput, type CycleCheckResult } from "./index.js";
+import { checkCyclesOpen, type CycleCheckInput, type CycleCheckResult, type Snapshot } from "./index.js";
 
 /**
  * The base side of a PR check from git: check out the merge base of `ref` and the
@@ -52,7 +52,29 @@ export interface GitCheckResult extends CycleCheckResult {
   renames: Record<string, string>;
 }
 
+/** checkAgainstRef with both indexes left open, and where the diff comes from. Close both when done. */
+export interface OpenGitCheck {
+  result: GitCheckResult;
+  base: Snapshot;
+  pr: Snapshot;
+  gitRoot: string;
+}
+
 export function checkAgainstRef(input: GitCheckInput): GitCheckResult {
+  const { result, base, pr } = checkAgainstRefOpen(input);
+  base.db.close();
+  pr.db.close();
+  return result;
+}
+
+/** The PR's changes against the commit it was compared with, working tree included, as a unified diff. */
+export function prDiff(gitRoot: string, baseCommit: string): string {
+  const r = spawnSync("git", ["diff", "-M", baseCommit], { cwd: gitRoot, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+  if (r.status !== 0) throw new Error(`git diff ${baseCommit} failed: ${r.stderr.trim() || r.error?.message}`);
+  return r.stdout;
+}
+
+export function checkAgainstRefOpen(input: GitCheckInput): OpenGitCheck {
   const prTsconfig = resolve(input.pr);
   const gitRoot = resolve(git(dirname(prTsconfig), ["rev-parse", "--show-toplevel"]));
   const baseCommit = git(gitRoot, ["merge-base", input.baseRef, "HEAD"]);
@@ -74,8 +96,9 @@ export function checkAgainstRef(input: GitCheckInput): GitCheckResult {
     }
     const baseTsconfig = join(worktree, tsconfigRel);
     if (!existsSync(baseTsconfig)) throw new Error(`${tsconfigRel} doesn't exist at ${input.baseRef} (${baseCommit.slice(0, 10)})`);
-    const result = checkCycles({ base: baseTsconfig, pr: prTsconfig, renames, outcomes: input.outcomes });
-    return { ...result, base_commit: baseCommit, renames };
+    const { result, base, pr } = checkCyclesOpen({ base: baseTsconfig, pr: prTsconfig, renames, outcomes: input.outcomes });
+    // The base index is in memory, so it outlives the worktree removed below.
+    return { result: { ...result, base_commit: baseCommit, renames }, base, pr, gitRoot };
   } finally {
     for (const link of links) {
       try {
