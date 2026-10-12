@@ -98,6 +98,7 @@ There are two harnesses. They answer different questions:
 | element-web · generated cycle tracing (long loops) | 10 × 5 | 50/50, $0.374 / 81 s per session | **50/50, $0.045 / 16 s** | ~8× cheaper in dollars, ~5× faster |
 | directus · cycle tracing vs **Bash + madge** | 10 × 5 | 50/50, $0.099 / 69 s per session | **50/50, $0.037 / 13 s** | ~2.7× cheaper in dollars, ~5× faster than the fair competitor |
 | element-web · cycle tracing vs **Bash + madge** | 10 × 5 | 49/50, $0.117 / 78 s per session | **50/50, $0.047 / 14 s** | ~2.5× cheaper in dollars, ~5.6× faster |
+| directus · runtime-vs-type traps vs **Bash + madge** | 10 × 5 | 50/50, $0.139 / 66 s per session | **50/50, $0.058 / 16 s** | ~2.4× cheaper in dollars, ~4× faster; RIE cost more before its runtime-only `dependency_path` |
 
 ### Hand-written tasks: TypeORM
 
@@ -233,11 +234,22 @@ madge is also not a runtime-cycle oracle. It has no type checker, so a plain `im
 
 The one wrong madge answer is partly the task's fault. The agent followed a dynamic `import("../stores/room-list-v3/RoomListStoreV3")` in `StoresApi.ts`. element-web's developers added it there, by their own comment, "to prevent circular dependency issues": it loads lazily, after the importing file has finished loading, so it isn't a load-time cycle, and the grader is right to reject it. But the cycle-task prompt never said dynamic `import()` calls don't count, while the path-task prompt did. madge includes them in its graph, so the ambiguity worked against it. Scored strictly, madge got 49/50, or 50/50 if this ambiguous task is excluded. Newly generated cycle and trap prompts now state the rule. The grader also used to blame the wrong step here (`EventTileFactory → Api`, a real import), because it only knows the start file's cycle group. It now reports that `src/modules/Api.ts` is outside the group instead.
 
+**Runtime-vs-type traps on directus: RIE lost, then won once `dependency_path` went runtime-only.** Each trap task names two files in the 192-file type-inclusive group and asks whether each reaches the other through runtime imports. The answer is no in at least one direction, because the obvious chain runs through an import TypeScript erases.
+
+| Run | Arm | Correct | Cost per session | Median wall time | Median calls | Tokens per correct | Median tokens [IQR] |
+|---|---|---|---|---|---|---|---|
+| directus, 10-07 (before) | bash-madge | 20/20 | $0.133 | | | | |
+| | rie | 20/20 | $0.190 | | | | |
+| directus, 10-09 (runtime-only `dependency_path`) | bash-madge | 50/50 | $0.139 | 66 s | 5 | 148K | 121K [83–186K] |
+| | rie | 50/50 | **$0.058** | **16 s** | **3** | 56K | 57K [37–68K] |
+
+On 10-07, `dependency_path` had no runtime-only mode and no per-hop evidence, so RIE agents had to check each hop by hand, and RIE cost ~1.4× madge. That run (`directus-2026-10-07T06-39-49-828Z`) also had dependency-path tasks. It stopped when the usage limit ran out, and only 20 of each arm's 50 trap sessions launched, so its row compares those 20. The fix added `runtime_only`, which follows only imports that survive compilation and reports `type_only_path_exists` when the runtime path is missing. Every hop now carries its import line, statement and runtime names. The 10-09 rerun (`directus-2026-10-09T07-44-00-492Z`, Claude Code 2.1.295) ran only the trap tasks, RIE and bash-madge interleaved. Its audit flagged 4 bash-madge sessions that loaded the TypeScript compiler from this project's `node_modules`, since the directus checkout has none installed. None touched an answer file, and all 4 answered correctly.
+
 **How to read these numbers:**
 - **Dollars and wall time are the headline, not tokens.** Most of the baseline's tokens are its growing context re-read from cache on every turn, and cache reads are cheap. The token ratios (~8× on directus, ~31× on element-web) overstate the real saving by 2–4×.
 - **The baseline has Read, Grep and Glob only.** It has no shell, so it can't run `madge --circular` or `tsc`, which a developer would reach for. Against that baseline the engine is ~4–8× cheaper. Against the bash-madge arm it is ~2.7× cheaper on directus and ~2.5× on element-web, and ~5× faster on both. Those are the numbers to quote.
 - **No session reached the answers.** Target repos sit inside this project, a few folders below the generated tasks and their expected answers. `npm run audit` scans every session's tool calls for paths outside the target checkout, or any reference to the answer files. It found nothing in all 550 long-loop sessions, and each results file carries its `meta.audit` record.
-- **The tasks fit the tool.** `find_cycle_through_file` was built after these tasks exposed the gap, and it answers exactly their question. Path and runtime-vs-type trap tasks on the same repos haven't been run yet.
+- **The tasks fit the tool.** `find_cycle_through_file` was built after these tasks exposed the gap, and it answers exactly their question. The trap tasks above are the first other category run on these repos, and only on directus. The directus dependency-path tasks are still incomplete: the 10-07 run stopped before half of its sessions launched.
 - **The one-time index build isn't counted.** It takes a few minutes on element-web, before any session starts.
 
 ### Overall reading
@@ -493,7 +505,7 @@ The other runs shared the CPU between two checkouts, so their timings aren't com
 
 ## Test suite
 
-`npm test` runs **357 tests in 18 files, all passing, plus 22 skipped** (vitest, 2026-10-11). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
+`npm test` runs **361 tests in 19 files, all passing, plus 22 skipped** (vitest, 2026-10-12). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
@@ -503,7 +515,8 @@ The other runs shared the CPU between two checkouts, so their timings aren't com
 | `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed, trap direction grading | 25 |
 | `benchmarks/oracle/cycle-events.test.ts` | The `rie check` cycle event cases against tsc emit: groups, traps, evidence lines, shortest loops, every new edge cited | 90 (+22 that don't apply to every case) |
 | `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, the spend stop, the consecutive-failure stop, turn-capped sessions, cost estimates, arm reuse, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 29 |
-| `src/check/cycle-events.test.ts` | `rie check` against every cycle event case: events, outcome and evidence; per-repo outcome overrides | 17 |
+| `src/check/cycle-events.test.ts` | `rie check` against every cycle event case: events, outcome and evidence (incl. which hops the PR added); per-repo outcome overrides | 17 |
+| `src/agent/finding.test.ts` | The investigation agent's finding format: facts from a `rie check` event, refusals (a suggestion marked verified, extra fields, loops that don't chain or close, non-JSON) | 4 |
 | `src/check/git.test.ts` | `--base-ref`: merge base, renames from git, worktree and link cleanup; relative tsconfig paths; runtime names in the report | 3 |
 | `src/check/report.test.ts` | The PR comment: marker, event table strictest first, loops for fail and warn only, caps on long lists | 3 |
 | `benchmarks/replay/replay.test.ts` | Replay on a 4-commit repo: three-way comparison, unchanged commits, dynamic `import()` (madge disagrees), scoring; seeded cases of all three kinds | 3 |

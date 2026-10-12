@@ -25,6 +25,11 @@ describe("rie check: cycle events", () => {
       expect(result.outcome).toBe(c.expected.outcome);
       expect(order(result.events)).toMatchObject(order(c.expected.events));
       expect(result.warnings).toEqual([]);
+      // Each loop is found through an import the PR added, and says which of its hops are new.
+      for (const { hops } of result.events.flatMap((e) => e.evidence ?? [])) {
+        expect(hops.every((h) => typeof h.added === "boolean")).toBe(true);
+        expect(hops[0].added).toBe(true);
+      }
       if (c.expected_without_renames) {
         expect(checkCycles({ base, pr }).outcome).toBe(c.expected_without_renames.outcome);
       }
