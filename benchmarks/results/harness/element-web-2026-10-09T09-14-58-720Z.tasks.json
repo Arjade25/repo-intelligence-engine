@@ -1,0 +1,584 @@
+{
+  "generated_by": "benchmarks/taskgen",
+  "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+  "tsconfig_flags": {
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "emitDecoratorMetadata": false,
+    "verbatimModuleSyntax": false,
+    "preserveValueImports": false,
+    "importsNotUsedAsValues": null,
+    "isolatedModules": false,
+    "preserveConstEnums": false
+  },
+  "params": {
+    "seed": 1,
+    "min_path": 6,
+    "min_hops": 5,
+    "min_closure": 25,
+    "max_per_category": 10,
+    "max_impact_candidates": 0
+  },
+  "stats": {
+    "files": 1434,
+    "runtime_edges": 6467,
+    "source_edges": 7534,
+    "runtime_sccs": [
+      115,
+      25,
+      13,
+      7,
+      3,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "source_sccs": [
+      644,
+      14,
+      3,
+      3,
+      2,
+      2
+    ],
+    "cycle_trace": {
+      "candidates": 173,
+      "passed_min_path": 64,
+      "emitted": 10
+    },
+    "dependency_path": {
+      "candidates": 947040,
+      "passed_min_path": 794974,
+      "reachable_candidates": 761582,
+      "unreachable_candidates": 33392,
+      "max_hops": 20,
+      "emitted": 10
+    },
+    "runtime_type_trap": {
+      "candidates": 207145,
+      "passed_min_path": 205596,
+      "true_candidates": 6684,
+      "false_candidates": 198912,
+      "emitted": 10
+    },
+    "change_impact": {
+      "candidates": 0,
+      "passed_min_path": 0,
+      "dropped_broken_reexport": 0,
+      "emitted": 0
+    }
+  },
+  "tasks": [
+    {
+      "id": "element-web-type-trap-001",
+      "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+      "prompt": "Is there a runtime circular dependency between src/components/views/right_panel/PinnedMessagesCard.tsx and src/components/views/right_panel/user_info/UserInfoHeaderView.tsx? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/components/views/right_panel/PinnedMessagesCard.tsx to src/components/views/right_panel/user_info/UserInfoHeaderView.tsx, from src/components/views/right_panel/user_info/UserInfoHeaderView.tsx to src/components/views/right_panel/PinnedMessagesCard.tsx, or both. Scope: only the files tsconfig.rie.json includes count (include `./src/**/*.ts`, `./src/**/*.tsx`; exclude `./src/test/**`, `./src/**/*.test.ts`, `./src/**/*.test.tsx`, `./src/**/*.test.browser.ts`, `./src/**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": false,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 644,
+        "min_path": 11,
+        "barrels": false,
+        "aliases": false,
+        "type_distractors": 24
+      },
+      "expected": {
+        "answer": false,
+        "a": "src/components/views/right_panel/PinnedMessagesCard.tsx",
+        "b": "src/components/views/right_panel/user_info/UserInfoHeaderView.tsx",
+        "graph": "source",
+        "a_to_b": [
+          "src/components/views/right_panel/PinnedMessagesCard.tsx",
+          "src/contexts/RoomContext.ts",
+          "src/components/structures/RoomView.tsx",
+          "src/components/structures/RightPanel.tsx",
+          "src/components/views/right_panel/UserInfo.tsx",
+          "src/components/views/right_panel/user_info/UserInfoHeaderView.tsx"
+        ],
+        "b_to_a": [
+          "src/components/views/right_panel/user_info/UserInfoHeaderView.tsx",
+          "src/components/views/avatars/MemberAvatar.tsx",
+          "src/hooks/room/useRoomMemberProfile.ts",
+          "src/contexts/RoomContext.ts",
+          "src/components/structures/RoomView.tsx",
+          "src/components/structures/RightPanel.tsx",
+          "src/components/views/right_panel/PinnedMessagesCard.tsx"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": false
+      }
+    },
+    {
+      "id": "element-web-type-trap-002",
+      "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+      "prompt": "Is there a runtime circular dependency between src/components/views/dialogs/DevtoolsDialog.tsx and src/components/views/messages/MessageEvent.tsx? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/components/views/dialogs/DevtoolsDialog.tsx to src/components/views/messages/MessageEvent.tsx, from src/components/views/messages/MessageEvent.tsx to src/components/views/dialogs/DevtoolsDialog.tsx, or both. Scope: only the files tsconfig.rie.json includes count (include `./src/**/*.ts`, `./src/**/*.tsx`; exclude `./src/test/**`, `./src/**/*.test.ts`, `./src/**/*.test.tsx`, `./src/**/*.test.browser.ts`, `./src/**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": false,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 115,
+        "min_path": 9,
+        "barrels": false,
+        "aliases": false,
+        "type_distractors": 16
+      },
+      "expected": {
+        "answer": true,
+        "a": "src/components/views/dialogs/DevtoolsDialog.tsx",
+        "b": "src/components/views/messages/MessageEvent.tsx",
+        "graph": "runtime",
+        "a_to_b": [
+          "src/components/views/dialogs/DevtoolsDialog.tsx",
+          "src/components/views/dialogs/devtools/RoomNotifications.tsx",
+          "src/Unread.ts",
+          "src/events/EventTileFactory.tsx",
+          "src/components/views/messages/MessageEvent.tsx"
+        ],
+        "b_to_a": [
+          "src/components/views/messages/MessageEvent.tsx",
+          "src/components/views/messages/TextualBodyFactory.tsx",
+          "src/components/views/rooms/EditMessageComposerWrapper.tsx",
+          "src/components/views/rooms/EditMessageComposer.tsx",
+          "src/slash-commands/SlashCommands.tsx",
+          "src/components/views/dialogs/DevtoolsDialog.tsx"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "element-web-type-trap-003",
+      "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+      "prompt": "Is there a runtime circular dependency between src/stores/notifications/RoomNotificationStateStore.ts and src/toasts/DesktopNotificationsToast.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/stores/notifications/RoomNotificationStateStore.ts to src/toasts/DesktopNotificationsToast.ts, from src/toasts/DesktopNotificationsToast.ts to src/stores/notifications/RoomNotificationStateStore.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `./src/**/*.ts`, `./src/**/*.tsx`; exclude `./src/test/**`, `./src/**/*.test.ts`, `./src/**/*.test.tsx`, `./src/**/*.test.browser.ts`, `./src/**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": false,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 115,
+        "min_path": 16,
+        "barrels": false,
+        "aliases": false,
+        "type_distractors": 14
+      },
+      "expected": {
+        "answer": true,
+        "a": "src/stores/notifications/RoomNotificationStateStore.ts",
+        "b": "src/toasts/DesktopNotificationsToast.ts",
+        "graph": "runtime",
+        "a_to_b": [
+          "src/stores/notifications/RoomNotificationStateStore.ts",
+          "src/stores/notifications/RoomNotificationState.ts",
+          "src/RoomNotifs.ts",
+          "src/Unread.ts",
+          "src/events/EventTileFactory.tsx",
+          "src/TextForEvent.tsx",
+          "src/stores/right-panel/RightPanelStore.ts",
+          "src/contexts/SDKContextClass.ts",
+          "src/Notifier.ts",
+          "src/toasts/DesktopNotificationsToast.ts"
+        ],
+        "b_to_a": [
+          "src/toasts/DesktopNotificationsToast.ts",
+          "src/utils/notifications.ts",
+          "src/Unread.ts",
+          "src/events/EventTileFactory.tsx",
+          "src/TextForEvent.tsx",
+          "src/stores/right-panel/RightPanelStore.ts",
+          "src/contexts/SDKContextClass.ts",
+          "src/stores/notifications/RoomNotificationStateStore.ts"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "element-web-type-trap-004",
+      "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+      "prompt": "Is there a runtime circular dependency between src/PosthogAnalytics.ts and src/indexing/EventIndex.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/PosthogAnalytics.ts to src/indexing/EventIndex.ts, from src/indexing/EventIndex.ts to src/PosthogAnalytics.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `./src/**/*.ts`, `./src/**/*.tsx`; exclude `./src/test/**`, `./src/**/*.test.ts`, `./src/**/*.test.tsx`, `./src/**/*.test.browser.ts`, `./src/**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": false,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 644,
+        "min_path": 13,
+        "barrels": false,
+        "aliases": false,
+        "type_distractors": 39
+      },
+      "expected": {
+        "answer": false,
+        "a": "src/PosthogAnalytics.ts",
+        "b": "src/indexing/EventIndex.ts",
+        "graph": "source",
+        "a_to_b": [
+          "src/PosthogAnalytics.ts",
+          "src/settings/SettingsStore.ts",
+          "src/settings/controllers/SettingController.ts",
+          "src/contexts/SDKContextClass.ts",
+          "src/stores/RoomViewStore.tsx",
+          "src/contexts/RoomContext.ts",
+          "src/components/structures/RoomView.tsx",
+          "src/Searching.ts",
+          "src/indexing/EventIndexPeg.ts",
+          "src/indexing/EventIndex.ts"
+        ],
+        "b_to_a": [
+          "src/indexing/EventIndex.ts",
+          "src/settings/SettingsStore.ts",
+          "src/settings/controllers/SettingController.ts",
+          "src/contexts/SDKContextClass.ts",
+          "src/PosthogAnalytics.ts"
+        ],
+        "runtime_a_to_b": false,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "element-web-type-trap-005",
+      "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+      "prompt": "Is there a runtime circular dependency between src/components/views/dialogs/QuestionDialog.tsx and src/stores/local-echo/EchoChamber.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/components/views/dialogs/QuestionDialog.tsx to src/stores/local-echo/EchoChamber.ts, from src/stores/local-echo/EchoChamber.ts to src/components/views/dialogs/QuestionDialog.tsx, or both. Scope: only the files tsconfig.rie.json includes count (include `./src/**/*.ts`, `./src/**/*.tsx`; exclude `./src/test/**`, `./src/**/*.test.ts`, `./src/**/*.test.tsx`, `./src/**/*.test.browser.ts`, `./src/**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": false,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 644,
+        "min_path": 21,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 51
+      },
+      "expected": {
+        "answer": false,
+        "a": "src/components/views/dialogs/QuestionDialog.tsx",
+        "b": "src/stores/local-echo/EchoChamber.ts",
+        "graph": "source",
+        "a_to_b": [
+          "src/components/views/dialogs/QuestionDialog.tsx",
+          "src/components/views/dialogs/BaseDialog.tsx",
+          "src/accessibility/KeyboardShortcuts.ts",
+          "src/settings/Settings.tsx",
+          "src/Notifier.ts",
+          "src/TextForEvent.tsx",
+          "src/utils/EventUtils.ts",
+          "src/components/views/rooms/EventTile.tsx",
+          "src/components/views/context_menus/MessageContextMenu.tsx",
+          "src/components/structures/ViewSource.tsx",
+          "src/components/views/dialogs/devtools/BaseTool.tsx",
+          "src/components/views/dialogs/DevtoolsDialog.tsx",
+          "src/components/views/dialogs/devtools/RoomNotifications.tsx",
+          "src/hooks/useRoomNotificationState.ts",
+          "src/stores/local-echo/EchoChamber.ts"
+        ],
+        "b_to_a": [
+          "src/stores/local-echo/EchoChamber.ts",
+          "src/stores/local-echo/EchoStore.ts",
+          "src/components/views/toasts/NonUrgentEchoFailureToast.tsx",
+          "src/Modal.tsx",
+          "src/contexts/SDKContext.ts",
+          "src/contexts/SDKContextClass.ts",
+          "src/LegacyCallHandler.tsx",
+          "src/components/views/dialogs/QuestionDialog.tsx"
+        ],
+        "runtime_a_to_b": false,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "element-web-type-trap-006",
+      "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+      "prompt": "Is there a runtime circular dependency between src/components/views/messages/MAudioBody.tsx and src/hooks/useRoomNotificationState.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/components/views/messages/MAudioBody.tsx to src/hooks/useRoomNotificationState.ts, from src/hooks/useRoomNotificationState.ts to src/components/views/messages/MAudioBody.tsx, or both. Scope: only the files tsconfig.rie.json includes count (include `./src/**/*.ts`, `./src/**/*.tsx`; exclude `./src/test/**`, `./src/**/*.test.ts`, `./src/**/*.test.tsx`, `./src/**/*.test.browser.ts`, `./src/**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": false,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 644,
+        "min_path": 14,
+        "barrels": true,
+        "aliases": false,
+        "type_distractors": 31
+      },
+      "expected": {
+        "answer": false,
+        "a": "src/components/views/messages/MAudioBody.tsx",
+        "b": "src/hooks/useRoomNotificationState.ts",
+        "graph": "source",
+        "a_to_b": [
+          "src/components/views/messages/MAudioBody.tsx",
+          "src/components/views/messages/IBodyProps.ts",
+          "src/components/views/rooms/EventTile.tsx",
+          "src/components/views/context_menus/MessageContextMenu.tsx",
+          "src/components/structures/ViewSource.tsx",
+          "src/components/views/dialogs/devtools/BaseTool.tsx",
+          "src/components/views/dialogs/DevtoolsDialog.tsx",
+          "src/components/views/dialogs/devtools/RoomNotifications.tsx",
+          "src/hooks/useRoomNotificationState.ts"
+        ],
+        "b_to_a": [
+          "src/hooks/useRoomNotificationState.ts",
+          "src/RoomNotifs.ts",
+          "src/Unread.ts",
+          "src/events/EventTileFactory.tsx",
+          "src/components/views/messages/MessageEvent.tsx",
+          "src/components/views/messages/MVoiceOrAudioBody.tsx",
+          "src/components/views/messages/MAudioBody.tsx"
+        ],
+        "runtime_a_to_b": false,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "element-web-type-trap-007",
+      "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+      "prompt": "Is there a runtime circular dependency between src/components/views/rooms/ReplyPreview.tsx and src/editor/caret.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/components/views/rooms/ReplyPreview.tsx to src/editor/caret.ts, from src/editor/caret.ts to src/components/views/rooms/ReplyPreview.tsx, or both. Scope: only the files tsconfig.rie.json includes count (include `./src/**/*.ts`, `./src/**/*.tsx`; exclude `./src/test/**`, `./src/**/*.test.ts`, `./src/**/*.test.tsx`, `./src/**/*.test.browser.ts`, `./src/**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": false,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 644,
+        "min_path": 12,
+        "barrels": false,
+        "aliases": false,
+        "type_distractors": 40
+      },
+      "expected": {
+        "answer": false,
+        "a": "src/components/views/rooms/ReplyPreview.tsx",
+        "b": "src/editor/caret.ts",
+        "graph": "source",
+        "a_to_b": [
+          "src/components/views/rooms/ReplyPreview.tsx",
+          "src/contexts/RoomContext.ts",
+          "src/components/structures/RoomView.tsx",
+          "src/components/views/rooms/MessageComposer.tsx",
+          "src/components/views/rooms/SendMessageComposer.tsx",
+          "src/editor/caret.ts"
+        ],
+        "b_to_a": [
+          "src/editor/caret.ts",
+          "src/editor/model.ts",
+          "src/editor/autocomplete.ts",
+          "src/autocomplete/Autocompleter.ts",
+          "src/contexts/RoomContext.ts",
+          "src/components/structures/RoomView.tsx",
+          "src/components/views/rooms/MessageComposer.tsx",
+          "src/components/views/rooms/ReplyPreview.tsx"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": false
+      }
+    },
+    {
+      "id": "element-web-type-trap-008",
+      "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+      "prompt": "Is there a runtime circular dependency between src/components/views/dialogs/CreateSubspaceDialog.tsx and src/stores/notifications/SpaceNotificationState.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/components/views/dialogs/CreateSubspaceDialog.tsx to src/stores/notifications/SpaceNotificationState.ts, from src/stores/notifications/SpaceNotificationState.ts to src/components/views/dialogs/CreateSubspaceDialog.tsx, or both. Scope: only the files tsconfig.rie.json includes count (include `./src/**/*.ts`, `./src/**/*.tsx`; exclude `./src/test/**`, `./src/**/*.test.ts`, `./src/**/*.test.tsx`, `./src/**/*.test.browser.ts`, `./src/**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": false,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 115,
+        "min_path": 15,
+        "barrels": false,
+        "aliases": false,
+        "type_distractors": 26
+      },
+      "expected": {
+        "answer": true,
+        "a": "src/components/views/dialogs/CreateSubspaceDialog.tsx",
+        "b": "src/stores/notifications/SpaceNotificationState.ts",
+        "graph": "runtime",
+        "a_to_b": [
+          "src/components/views/dialogs/CreateSubspaceDialog.tsx",
+          "src/components/views/dialogs/AddExistingToSpaceDialog.tsx",
+          "src/contexts/SDKContextClass.ts",
+          "src/stores/spaces/SpaceStore.ts",
+          "src/stores/notifications/SpaceNotificationState.ts"
+        ],
+        "b_to_a": [
+          "src/stores/notifications/SpaceNotificationState.ts",
+          "src/stores/notifications/RoomNotificationStateStore.ts",
+          "src/stores/notifications/RoomNotificationState.ts",
+          "src/RoomNotifs.ts",
+          "src/Unread.ts",
+          "src/events/EventTileFactory.tsx",
+          "src/components/views/messages/LegacyCallEvent.tsx",
+          "src/components/structures/LegacyCallEventGrouper.ts",
+          "src/LegacyCallHandler.tsx",
+          "src/createRoom.ts",
+          "src/utils/space.tsx",
+          "src/components/views/dialogs/CreateSubspaceDialog.tsx"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "element-web-type-trap-009",
+      "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+      "prompt": "Is there a runtime circular dependency between src/createRoom.ts and src/stores/RoomViewStore.tsx? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/createRoom.ts to src/stores/RoomViewStore.tsx, from src/stores/RoomViewStore.tsx to src/createRoom.ts, or both. Scope: only the files tsconfig.rie.json includes count (include `./src/**/*.ts`, `./src/**/*.tsx`; exclude `./src/test/**`, `./src/**/*.test.ts`, `./src/**/*.test.tsx`, `./src/**/*.test.browser.ts`, `./src/**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": false,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 115,
+        "min_path": 6,
+        "barrels": false,
+        "aliases": false,
+        "type_distractors": 18
+      },
+      "expected": {
+        "answer": true,
+        "a": "src/createRoom.ts",
+        "b": "src/stores/RoomViewStore.tsx",
+        "graph": "runtime",
+        "a_to_b": [
+          "src/createRoom.ts",
+          "src/contexts/SDKContextClass.ts",
+          "src/stores/RoomViewStore.tsx"
+        ],
+        "b_to_a": [
+          "src/stores/RoomViewStore.tsx",
+          "src/utils/RoomUpgrade.ts",
+          "src/contexts/SDKContextClass.ts",
+          "src/LegacyCallHandler.tsx",
+          "src/createRoom.ts"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": true
+      }
+    },
+    {
+      "id": "element-web-type-trap-010",
+      "repo": "element-hq/element-web@3af3cbec98350c7184caeb5e6b085a369c8572a6",
+      "prompt": "Is there a runtime circular dependency between src/components/views/messages/MessageEvent.tsx and src/slash-commands/command.ts? That is, can each file reach the other through imports that survive compilation to JavaScript, ignoring imports TypeScript erases because they are only used as types, and ignoring dynamic import() calls? Answer yes or no. If yes, give the import chain in each direction. If no, say which direction has no such runtime path: from src/components/views/messages/MessageEvent.tsx to src/slash-commands/command.ts, from src/slash-commands/command.ts to src/components/views/messages/MessageEvent.tsx, or both. Scope: only the files tsconfig.rie.json includes count (include `./src/**/*.ts`, `./src/**/*.tsx`; exclude `./src/test/**`, `./src/**/*.test.ts`, `./src/**/*.test.tsx`, `./src/**/*.test.browser.ts`, `./src/**/*.d.ts`); ignore every other file in the repository.",
+      "tsconfig_flags": {
+        "module": "Preserve",
+        "moduleResolution": "Bundler",
+        "emitDecoratorMetadata": false,
+        "verbatimModuleSyntax": false,
+        "preserveValueImports": false,
+        "importsNotUsedAsValues": null,
+        "isolatedModules": false,
+        "preserveConstEnums": false
+      },
+      "category": "runtime_type_trap",
+      "validator": "runtime_cycle_yes_no",
+      "difficulty": {
+        "scc_size": 115,
+        "min_path": 12,
+        "barrels": false,
+        "aliases": false,
+        "type_distractors": 23
+      },
+      "expected": {
+        "answer": true,
+        "a": "src/components/views/messages/MessageEvent.tsx",
+        "b": "src/slash-commands/command.ts",
+        "graph": "runtime",
+        "a_to_b": [
+          "src/components/views/messages/MessageEvent.tsx",
+          "src/components/views/messages/TextualBodyFactory.tsx",
+          "src/components/views/rooms/EditMessageComposerWrapper.tsx",
+          "src/components/views/rooms/EditMessageComposer.tsx",
+          "src/slash-commands/SlashCommands.tsx",
+          "src/slash-commands/command.ts"
+        ],
+        "b_to_a": [
+          "src/slash-commands/command.ts",
+          "src/slash-commands/utils.ts",
+          "src/contexts/SDKContextClass.ts",
+          "src/LegacyCallHandler.tsx",
+          "src/utils/notifications.ts",
+          "src/Unread.ts",
+          "src/events/EventTileFactory.tsx",
+          "src/components/views/messages/MessageEvent.tsx"
+        ],
+        "runtime_a_to_b": true,
+        "runtime_b_to_a": true
+      }
+    }
+  ]
+}

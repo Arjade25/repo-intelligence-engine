@@ -58,6 +58,8 @@ export interface EvidenceHop {
   statement: string | null;
   /** The imported names that survive compilation, when the statement names any. */
   runtime_names?: string[];
+  /** On a PR finding: whether the PR added this file pair's import (it isn't in the base graph). */
+  added?: boolean;
 }
 
 export interface Evidence {
@@ -260,6 +262,7 @@ export function compareSnapshots(
       const ev = loopEvidence(pr, e.from, e.to);
       if (!ev) continue;
       ev.loop.slice(1).forEach((to, i) => covered.add(key(ev.loop[i], to)));
+      ev.hops = ev.hops.map((hop, i) => ({ ...hop, added: !baseEdges.has(key(ev.loop[i], ev.loop[i + 1])) }));
       out.push(ev);
     }
     return out;
