@@ -105,23 +105,40 @@ export interface CycleCheckResult {
   warnings: string[];
 }
 
-interface RuntimeEdge {
+export interface RuntimeEdge {
   from: string;
   to: string;
+  /** The pair's first import line; 0 when the graph's source has no lines (the emit oracle, madge). */
   line: number;
 }
 
-/** One indexed snapshot, with every path relative to its tsconfig directory. */
-export interface Snapshot {
-  db: Database.Database;
-  /** The snapshot's paths as the index stores them, by relative path. */
-  stored: Map<string, string>;
+/**
+ * A runtime import graph, every path relative to the tsconfig directory. Events
+ * can be computed from any source of one: RIE's index here, or the emit oracle and
+ * madge in the history replay (benchmarks/replay).
+ */
+export interface CycleGraph {
   /** Runtime cycle groups, each sorted, largest first. */
   groups: string[][];
   /** Runtime imports, one per file pair, at the pair's first line. */
   edges: RuntimeEdge[];
   /** Runtime successors of each file, sorted, so loops are deterministic. */
   next: Map<string, string[]>;
+}
+
+/** Successor lists for a graph's edges, sorted. */
+export function successors(edges: RuntimeEdge[]): Map<string, string[]> {
+  const next = new Map<string, string[]>();
+  for (const e of edges) next.set(e.from, [...(next.get(e.from) ?? []), e.to]);
+  for (const list of next.values()) list.sort();
+  return next;
+}
+
+/** One snapshot indexed by RIE: a CycleGraph plus the index, which the evidence's import lines come from. */
+export interface Snapshot extends CycleGraph {
+  db: Database.Database;
+  /** The snapshot's paths as the index stores them, by relative path. */
+  stored: Map<string, string>;
   unresolved: number;
   unresolvedSummary: string;
 }
@@ -145,16 +162,13 @@ export function indexSnapshot(tsconfigPath: string): Snapshot {
     )
     .all() as { from_file: string; to_file: string; line: number | null }[];
   const edges = rows.map((r) => ({ from: rel(r.from_file), to: rel(r.to_file), line: r.line ?? 0 }));
-  const next = new Map<string, string[]>();
-  for (const e of edges) next.set(e.from, [...(next.get(e.from) ?? []), e.to]);
-  for (const list of next.values()) list.sort();
 
   return {
     db,
     stored,
     groups,
     edges,
-    next,
+    next: successors(edges),
     unresolved: unresolved.length,
     unresolvedSummary: unresolved.length > 0 ? describeUnresolved(unresolved) : "",
   };
@@ -183,7 +197,7 @@ function shortestPath(next: Map<string, string[]>, from: string, to: string): st
 }
 
 /** Files on the shortest loop through `file`; 0 when it is in none. */
-export function shortestLoopLength(snapshot: Pick<Snapshot, "next">, file: string): number {
+export function shortestLoopLength(snapshot: Pick<CycleGraph, "next">, file: string): number {
   let best = Infinity;
   for (const n of snapshot.next.get(file) ?? []) {
     const back = n === file ? [file] : shortestPath(snapshot.next, n, file);
@@ -211,10 +225,14 @@ const RANK: Record<Outcome, number> = { pass: 0, warn: 1, fail: 2 };
 const key = (from: string, to: string) => `${from}\u0000${to}`;
 const sortGroups = (groups: string[][]) => [...groups].sort((a, b) => a.join().localeCompare(b.join()));
 
-/** Compare two already-indexed snapshots. */
+/**
+ * Compare two snapshots' runtime graphs. Evidence (the loop and the import line
+ * behind each hop) needs the PR side's RIE index; for any other graph, such as the
+ * emit oracle's, events come without it.
+ */
 export function compareSnapshots(
-  base: Snapshot,
-  pr: Snapshot,
+  base: CycleGraph,
+  pr: CycleGraph | Snapshot,
   options: Pick<CycleCheckInput, "renames" | "outcomes"> = {}
 ): Omit<CycleCheckResult, "warnings"> {
   const renames = options.renames ?? {};
@@ -229,7 +247,8 @@ export function compareSnapshots(
   const baseEdges = new Set(base.edges.map((e) => key(toPr(e.from), toPr(e.to))));
 
   /** Each new runtime import inside the group, in (file, line) order, with the shortest loop through it; edges already on a loop are skipped. */
-  const evidenceFor = (group: string[]): Evidence[] => {
+  const evidenceFor = (group: string[]): Evidence[] | undefined => {
+    if (!("db" in pr)) return undefined;
     const members = new Set(group);
     const added = pr.edges
       .filter((e) => members.has(e.from) && members.has(e.to) && !baseEdges.has(key(e.from, e.to)))
@@ -249,12 +268,8 @@ export function compareSnapshots(
   const events: CycleEvent[] = [];
   const event = (type: CycleEventType, fields: Omit<CycleEvent, "type" | "outcome">, evidenceGroup?: string[]) => {
     const outcome = outcomeOf(type);
-    events.push({
-      type,
-      outcome,
-      ...fields,
-      ...(outcome !== "pass" && evidenceGroup && { evidence: evidenceFor(evidenceGroup) }),
-    });
+    const evidence = outcome !== "pass" && evidenceGroup ? evidenceFor(evidenceGroup) : undefined;
+    events.push({ type, outcome, ...fields, ...(evidence && { evidence }) });
   };
 
   // PR side: groups that are new, grew or merged.
