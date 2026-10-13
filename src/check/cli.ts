@@ -84,6 +84,24 @@ const number = (name: string, fallback: number) => {
   return n;
 };
 
+const SDK = "@anthropic-ai/claude-agent-sdk";
+
+/**
+ * The agent, loaded only for --explain, so a plain check never loads the Agent SDK.
+ * The SDK is an optional peer dependency: without it, say how to install it and
+ * carry on with rie check's own findings, since the agent never changes the outcome.
+ */
+async function loadAgent(): Promise<typeof import("../agent/pr.js") | undefined> {
+  try {
+    return await import("../agent/pr.js");
+  } catch (e) {
+    const message = (e as Error).message ?? "";
+    if (!/claude-agent-sdk/.test(message) || !/cannot find|not found/i.test(message)) throw e;
+    console.error(`--explain needs the Claude Agent SDK, which isn't installed: npm install ${SDK}. Findings are reported without explanations.`);
+    return undefined;
+  }
+}
+
 let result: CycleCheckResult & { base_commit?: string };
 let explanations: PrExplanation[] | undefined;
 if (!args.includes("--explain")) {
@@ -96,9 +114,8 @@ if (!args.includes("--explain")) {
     if (result.outcome !== "pass") {
       const diffFile = flag("diff");
       const diff = diffFile ? readFileSync(diffFile, "utf8") : open.gitRoot && result.base_commit ? prDiff(open.gitRoot, result.base_commit) : "";
-      // Loaded only here, so a plain check never loads the Agent SDK.
-      const { explainEvents } = await import("../agent/pr.js");
-      explanations = await explainEvents({
+      const agent = await loadAgent();
+      explanations = await agent?.explainEvents({
         result,
         pr: open.pr,
         base: open.base,
