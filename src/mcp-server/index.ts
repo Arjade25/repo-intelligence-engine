@@ -9,6 +9,7 @@
  * drive the real server over an InMemoryTransport-linked client, without spawning
  * a stdio subprocess — see mcp-server/index.test.ts.
  */
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -160,8 +161,8 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
   return server;
 }
 
-const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isMain) {
+/** Serve the index over stdio: RIE_DB (default repo-index.db) for the index, RIE_TSCONFIG (default ./tsconfig.json) for reindex. */
+export async function serveStdio(): Promise<void> {
   const DB_PATH = process.env.RIE_DB ?? "repo-index.db";
   const TSCONFIG = process.env.RIE_TSCONFIG ?? "./tsconfig.json";
 
@@ -171,3 +172,7 @@ if (isMain) {
   await server.connect(transport);
   console.error("repo-intelligence-engine MCP server running on stdio");
 }
+
+// An npm bin is a symlink on macOS and Linux, so argv[1] is resolved before comparing.
+const isMain = process.argv[1] !== undefined && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+if (isMain) await serveStdio();

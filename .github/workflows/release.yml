@@ -1,0 +1,52 @@
+# Release on a version tag (git tag v0.2.0 && git push origin v0.2.0):
+# - test and build,
+# - push Action refs with dist/ built in: v0.2.0-action (fixed) and v0 (moves to the latest
+#   0.x release), so `uses: Arjade25/repo-intelligence-engine@v0` skips the build and the dev install,
+# - publish to npm, when the NPM_TOKEN secret is set.
+name: release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write # the Action refs
+  id-token: write # npm provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Tag matches package.json
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but package.json says $version"
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Action refs with dist/
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          find dist -name '*.test.*' -delete
+          git add -f dist
+          git commit -q -m "dist/ for $GITHUB_REF_NAME"
+          major="${GITHUB_REF_NAME%%.*}"
+          git tag -f "$GITHUB_REF_NAME-action"
+          git tag -f "$major"
+          git push -f origin "refs/tags/$GITHUB_REF_NAME-action" "refs/tags/$major"
+      - name: Publish to npm
+        if: env.NPM_TOKEN != ''
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public

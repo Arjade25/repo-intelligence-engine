@@ -4,14 +4,14 @@ import { join, posix, resolve } from "node:path";
 import { compareSnapshots, indexSnapshot, type CycleEvent, type CycleGraph, type Outcome, type Snapshot } from "../../src/check/index.js";
 import { parseRenames } from "../../src/check/git.js";
 import { loadTsconfig, normalizePath } from "../../src/indexer/index.js";
-import { madgeGraph, oracleGraph } from "./graphs.js";
+import { dpdmGraph, eslintReports, madgeGraph, oracleGraph, type EslintReports } from "./graphs.js";
 import { applySeed, pickSeeds, type Seed } from "./seed.js";
 
 /**
  * History replay (plan, week 2): for each commit on a stretch of first-parent
  * history, compare it with its parent the way `rie check` compares a PR with its
  * base, three ways - RIE, the emit oracle (the labels) and madge - and record
- * every event, outcome and timing. Each snapshot is computed once: a commit's
+ * every event, outcome and timing (dpdm and eslint no-cycle too, on request). Each snapshot is computed once: a commit's
  * parent is the previous commit, so walking forward reuses it.
  *
  * A commit that changes no file under the source directory can't change the
@@ -20,7 +20,7 @@ import { applySeed, pickSeeds, type Seed } from "./seed.js";
  * imports of packages count as external on both sides.
  */
 
-export type Tool = "rie" | "oracle" | "madge";
+export type Tool = "rie" | "oracle" | "madge" | "dpdm" | "eslint";
 
 export interface ToolResult {
   outcome: Outcome;
@@ -81,13 +81,21 @@ export function firstParentCommits(repo: string, tip: string, count: number): st
 
 const eventKey = (e: CycleEvent) => `${e.type} ${JSON.stringify(e.base_groups ?? [])} ${JSON.stringify(e.pr_groups ?? [])}`;
 
-type Graphs = Partial<Record<Tool, CycleGraph | Snapshot>> & { ms: Partial<Record<Tool, number>> };
+type Graphs = Partial<Record<Tool, CycleGraph | Snapshot | EslintReports>> & { ms: Partial<Record<Tool, number>> };
+
+const BUILD: Record<Tool, (tsconfigPath: string) => CycleGraph | Snapshot | EslintReports> = {
+  rie: indexSnapshot,
+  oracle: oracleGraph,
+  madge: (t) => madgeGraph(t),
+  dpdm: (t) => dpdmGraph(t),
+  eslint: (t) => eslintReports(t),
+};
 
 function buildGraphs(tsconfigPath: string, tools: Tool[]): Graphs {
   const graphs: Graphs = { ms: {} };
   for (const tool of tools) {
     const t = Date.now();
-    graphs[tool] = tool === "rie" ? indexSnapshot(tsconfigPath) : tool === "oracle" ? oracleGraph(tsconfigPath) : madgeGraph(tsconfigPath);
+    graphs[tool] = BUILD[tool](tsconfigPath);
     graphs.ms[tool] = Date.now() - t;
   }
   return graphs;
@@ -95,15 +103,34 @@ function buildGraphs(tsconfigPath: string, tools: Tool[]): Graphs {
 
 const release = (g: Graphs | undefined) => (g?.rie as Snapshot | undefined)?.db.close();
 
+/**
+ * no-cycle has no groups (see eslintReports), so it is compared the way a team
+ * gates a PR with it: the PR fails when it has a reported import (importing file ->
+ * imported file, after renames) that the base didn't. Its events are never the
+ * oracle's event types, so the summary scores its outcome only.
+ */
+export function compareReports(before: EslintReports, after: EslintReports, renames: Record<string, string>): { outcome: Outcome; events: string[] } {
+  const key = (from: string, to: string) => `${from} -> ${to}`;
+  const base = new Set(before.reports.map((r) => key(renames[r.from] ?? r.from, renames[r.to] ?? r.to)));
+  const added = after.reports.map((r) => key(r.from, r.to)).filter((k) => !base.has(k)).sort();
+  return added.length > 0 ? { outcome: "fail", events: added.map((k) => `no_cycle_report_added ${k}`) } : { outcome: "pass", events: ["no_regression [] []"] };
+}
+
 function compareAll(before: Graphs, after: Graphs, tools: Tool[], renames: Record<string, string>, parentMs: boolean) {
   const out: Partial<Record<Tool, ToolResult>> = {};
   for (const tool of tools) {
-    const result = compareSnapshots(before[tool]!, after[tool]!, { renames });
+    const ms = after.ms[tool]! + (parentMs ? before.ms[tool]! : 0);
+    if (tool === "eslint") {
+      const { outcome, events } = compareReports(before.eslint as EslintReports, after.eslint as EslintReports, renames);
+      out.eslint = { outcome, events, detail: [], ms, groups: [] };
+      continue;
+    }
+    const result = compareSnapshots(before[tool] as CycleGraph | Snapshot, after[tool] as CycleGraph | Snapshot, { renames });
     out[tool] = {
       outcome: result.outcome,
       events: result.events.map(eventKey).sort(),
       detail: result.events,
-      ms: after.ms[tool]! + (parentMs ? before.ms[tool]! : 0),
+      ms,
       groups: result.groups.pr.map((g) => g.length),
     };
   }
@@ -138,7 +165,7 @@ export function replaySeeds(options: SeedOptions): ReplayRecord[] {
   const base = buildGraphs(tsconfigPath, toolsWithOracle);
   const root = posix.dirname(resolvePosix(tsconfigPath)) + "/";
   const files = loadTsconfig(tsconfigPath).fileNames.map((f) => resolvePosix(f).slice(root.length));
-  const seeds = pickSeeds(base.oracle!, files, tsconfigPath, options.count, options.seed);
+  const seeds = pickSeeds(base.oracle as CycleGraph, files, tsconfigPath, options.count, options.seed);
   const records: ReplayRecord[] = [];
   try {
     for (const seed of seeds) {
@@ -230,8 +257,8 @@ export function replay(options: ReplayOptions): ReplayRecord[] {
         record.tools = compareAll(before, after, tools, record.renames, !reused);
         if (after.rie && after.oracle) {
           const key = (e: { from: string; to: string }) => `${e.from}\u0000${e.to}`;
-          const rie = new Set(after.rie.edges.map(key));
-          const oracle = new Set(after.oracle.edges.map(key));
+          const rie = new Set((after.rie as Snapshot).edges.map(key));
+          const oracle = new Set((after.oracle as CycleGraph).edges.map(key));
           record.edges = {
             agree: [...rie].filter((k) => oracle.has(k)).length,
             rie_only: [...rie].filter((k) => !oracle.has(k)).length,

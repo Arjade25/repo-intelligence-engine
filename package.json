@@ -1,17 +1,36 @@
 {
-  "name": "repo-intelligence-engine",
+  "name": "rie-check",
   "version": "0.1.0",
-  "description": "A TypeScript repository indexing engine that builds a structural model of a codebase and exposes it to AI coding agents through an MCP server.",
+  "description": "Fail a pull request that makes TypeScript runtime import cycles worse than its base branch, with the import line behind every loop. Also an MCP server that gives coding agents the import graph.",
+  "keywords": [
+    "typescript",
+    "circular-dependencies",
+    "import-cycles",
+    "github-action",
+    "mcp"
+  ],
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Arjade25/repo-intelligence-engine.git"
   },
   "bin": {
+    "rie-check": "./dist/check/cli.js",
+    "rie": "./dist/cli.js",
     "rie-mcp": "./dist/mcp-server/index.js"
   },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "action.yml"
+  ],
   "scripts": {
     "build": "tsc",
     "postbuild": "node -e \"require('fs').mkdirSync('dist/storage',{recursive:true});require('fs').copyFileSync('src/storage/schema.sql','dist/storage/schema.sql')\"",
+    "prepublishOnly": "npm run build",
     "index": "tsx src/indexer/cli.ts",
     "mcp": "tsx src/mcp-server/index.ts",
     "check": "tsx src/check/cli.ts",
@@ -29,15 +48,28 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.296",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^12.11.1",
     "typescript": "^5.4.0",
     "zod": "^4.6.7"
   },
+  "peerDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.296"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/claude-agent-sdk": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.296",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.0.0",
+    "@typescript-eslint/parser": "^8.71.2",
+    "dpdm": "^4.3.0",
+    "eslint": "^9.39.5",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import": "^2.32.0",
     "madge": "^8.0.0",
     "tsx": "^4.7.0",
     "vitest": "^4.1.10"

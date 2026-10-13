@@ -58,11 +58,24 @@ runs:
     - name: Build rie
       shell: bash
       working-directory: ${{ github.action_path }}
+      env:
+        EXPLAIN: ${{ inputs.explain }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
       run: |
         major="$(node -p 'process.versions.node.split(".")[0]')"
-        if [ "$major" -lt 20 ]; then echo "::error::rie check needs Node 20 or later, found $(node -v)"; exit 1; fi
-        if [ ! -d node_modules ]; then npm ci --no-audit --no-fund; fi
-        if [ ! -f dist/check/cli.js ]; then npm run build; fi
+        if [ "$major" -lt 22 ]; then echo "::error::rie check needs Node 22 or later, found $(node -v)"; exit 1; fi
+        # A ref with dist/ built in needs only the runtime dependencies; otherwise build from source.
+        if [ -f dist/check/cli.js ]; then
+          [ -d node_modules ] || npm ci --omit=dev --no-audit --no-fund
+        else
+          [ -d node_modules ] || npm ci --no-audit --no-fund
+          npm run build
+        fi
+        # The Agent SDK is an optional peer dependency (a ~250 MB platform binary): installed only to explain.
+        sdk="@anthropic-ai/claude-agent-sdk"
+        if [ "$EXPLAIN" = "true" ] && [ -n "$ANTHROPIC_API_KEY" ] && [ ! -d "node_modules/$sdk" ]; then
+          npm install --no-save --omit=dev --no-audit --no-fund "$sdk@$(node -p "require('./package.json').peerDependencies['$sdk']")"
+        fi
 
     - name: Fetch the base branch
       shell: bash

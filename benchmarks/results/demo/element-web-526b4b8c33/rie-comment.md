@@ -22,4 +22,15 @@ src/utils/space.tsx:20                            import { showRoomInviteDialog 
 src/RoomInvite.tsx:16                             import InviteDialog from "./components/views/dialogs/InviteDialog";  (runtime: default)
 ```
 
+##### Explanation (verified facts)
+
+The PR replaced InviteDialog.tsx's import of the legacy RoomListStore with `import RoomListStoreV3 from "../../../stores/room-list-v3/RoomListStoreV3"` (line 29). InviteDialog was already in the large runtime cycle. RoomListStoreV3 imports SpaceStore, and SpaceStore leads back to InviteDialog through LegacyRoomList → utils/space → RoomInvite. So RoomListStoreV3 is now in the cycle too, and so are 9 other room-list-v3 files that are tied to it: section.ts and the skip-list files (RoomSkipList, RoomNode, MentionsFilter/UnreadFilter, the recency/unread sorters and getLastTimestamp). The cycle grows from its base size by these 10 files. The import is a runtime import: InviteDialog calls `RoomListStoreV3.instance.getDmRooms()`. Load order now depends on which of these files is imported first. A module in the loop can run before RoomListStoreV3 or its sorters have finished loading, and then a top-level reference to one of them can be `undefined` or throw a TDZ error. The LoggedInView.tsx change in the same PR was not reported as part of this loop.
+
+##### Suggestions (not verified)
+
+- In InviteDialog.buildRecents, load the store lazily instead of importing it at the top of the file. For example, use a dynamic `await import("../../../stores/room-list-v3/RoomListStoreV3")`, or pass the DM rooms into buildRecents as an argument from a caller outside the cycle. Either way, InviteDialog.tsx stops importing RoomListStoreV3 at load time.
+- Compute the DM-tagged rooms without RoomListStoreV3. You could call `getTagsForRoom` (src/utils/room/getTagsForRoom) directly on the client's visible rooms in InviteDialog, or move that logic into a small helper that doesn't import SpaceStore. The tag check is what the new getDmRooms() does, but getDmRooms() also limits results to the active space, so this would change which rooms are returned.
+- Break the existing back-edge instead: SpaceStore.ts imports TAG_ORDER from components/views/rooms/LegacyRoomList.tsx. Moving TAG_ORDER into a constants module with no UI imports would cut the SpaceStore → LegacyRoomList → utils/space → RoomInvite → InviteDialog path. This would also shrink the existing cycle.
+- Revert InviteDialog.tsx to the legacy `RoomListStore.instance.orderedLists[DefaultTagID.DM]` lookup, which was already in the cycle, until the migration can be done without this import.
+
 <sub>Runtime imports only: type-only imports and dynamic <code>import()</code> don't count, and barrel re-exports do. Cycles already on the base branch never fail a PR.</sub>

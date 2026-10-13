@@ -1,10 +1,10 @@
 #!/usr/bin/env tsx
 /**
- * History replay for rie check: score RIE and madge against emit-oracle labels on
+ * History replay for rie check: score RIE, madge, dpdm and eslint no-cycle against emit-oracle labels on
  * real commits.
  *
  *   npm run replay -- --repo=<git checkout> --tsconfig=<path in repo> [--tsconfig-from=<file>]
- *                     (--last=N [--at=<ref>] | --commits=sha,sha) [--tools=rie,oracle,madge]
+ *                     (--last=N [--at=<ref>] | --commits=sha,sha) [--tools=rie,oracle,madge,dpdm,eslint]
  *                     [--out=<results.jsonl>]
  *   npm run replay -- --summarize=<results.jsonl>[,<more.jsonl>]
  *   npm run replay -- --mine --repo=... --tsconfig=... --from=<oldest> [--at=<newest>] [--stride=25] [--out=<mine.jsonl>]
@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { firstParentCommits, replay, replaySeeds, type ReplayRecord, type Tool } from "./replay.js";
 import { mine } from "./mine.js";
-import { formatSummary, summarizeReplay } from "./summarize.js";
+import { formatSummary, mergeRecords, summarizeReplay } from "./summarize.js";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -34,7 +34,8 @@ const read = (path: string) =>
 
 const summarize = flag("summarize");
 if (summarize) {
-  const records = summarize.split(",").flatMap(read);
+  // Several files of the same commits (say, dpdm and eslint run later) merge into one record per commit.
+  const records = mergeRecords(summarize.split(",").flatMap(read));
   const summary = summarizeReplay(records);
   console.log(formatSummary(summary));
   if (args.includes("--json")) writeFileSync(summarize.split(",")[0].replace(/\.jsonl$/, ".summary.json"), JSON.stringify(summary, null, 2));
