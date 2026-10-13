@@ -1,5 +1,5 @@
 name: rie check
-description: Fail a pull request that makes runtime import cycles worse than its base branch, with the import line behind every loop. No model involved.
+description: Fail a pull request that makes runtime import cycles worse than its base branch, with the import line behind every loop. The check uses no model; an optional agent explains its findings.
 author: Arjade25
 
 inputs:
@@ -23,6 +23,24 @@ inputs:
   github-token:
     description: Token for the PR comment. Needs pull-requests write.
     default: ${{ github.token }}
+  explain:
+    description: >-
+      "true" runs the investigation agent on each fail or warn finding and adds its explanation to the
+      comment, after rie check's own findings. Only facts that pass the verifier are shown; suggestions are
+      marked unverified. It never changes the outcome. Needs anthropic-api-key.
+    default: "false"
+  anthropic-api-key:
+    description: API key for the agent, e.g. secrets.ANTHROPIC_API_KEY. Without it (as on PRs from forks) no explanation is added.
+    default: ""
+  explain-max:
+    description: Findings explained per run; the rest get rie check's findings only.
+    default: "3"
+  explain-budget-usd:
+    description: Spend cap per finding, in USD, retry included.
+    default: "0.5"
+  explain-model:
+    description: Model for the agent.
+    default: claude-opus-5-5
 
 outputs:
   outcome:
@@ -63,15 +81,28 @@ runs:
         TSCONFIG: ${{ inputs.tsconfig }}
         BASE_REF: ${{ inputs.base-ref }}
         OUTCOMES: ${{ inputs.outcomes }}
+        EXPLAIN: ${{ inputs.explain }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        EXPLAIN_MAX: ${{ inputs.explain-max }}
+        EXPLAIN_BUDGET: ${{ inputs.explain-budget-usd }}
+        EXPLAIN_MODEL: ${{ inputs.explain-model }}
       run: |
         base="${BASE_REF:-origin/$GITHUB_BASE_REF}"
         if [ "$base" = "origin/" ]; then echo "::error::not a pull_request run: set the base-ref input"; exit 1; fi
         md="$RUNNER_TEMP/rie-check.md"
         json="$RUNNER_TEMP/rie-check.json"
         rm -f "$md" "$json"
+        explain=()
+        if [ "$EXPLAIN" = "true" ]; then
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            explain=(--explain --explain-max="$EXPLAIN_MAX" --explain-budget="$EXPLAIN_BUDGET" --explain-model="$EXPLAIN_MODEL")
+          else
+            echo "::notice::rie check: explain is on but anthropic-api-key is empty (a PR from a fork gets no secrets), so findings won't be explained."
+          fi
+        fi
         set +e
         node "$GITHUB_ACTION_PATH/dist/check/cli.js" --pr="$TSCONFIG" --base-ref="$base" \
-          ${OUTCOMES:+--outcome="$OUTCOMES"} --markdown-out="$md" --json-out="$json"
+          ${OUTCOMES:+--outcome="$OUTCOMES"} "${explain[@]}" --markdown-out="$md" --json-out="$json"
         code=$?
         set -e
         # Exit 1 also means a crash; only a written result says the check ran.

@@ -316,8 +316,15 @@ export function compareSnapshots(
   return { outcome, events, groups: { base: base.groups, pr: pr.groups } };
 }
 
-/** Index both snapshots and compare them. */
-export function checkCycles(input: CycleCheckInput): CycleCheckResult {
+/** A check whose indexes are still open, for a caller that keeps querying them (the investigation agent). Close both when done. */
+export interface OpenCheck {
+  result: CycleCheckResult;
+  base: Snapshot;
+  pr: Snapshot;
+}
+
+/** Index both snapshots and compare them, leaving both indexes open. */
+export function checkCyclesOpen(input: CycleCheckInput): OpenCheck {
   const base = indexSnapshot(input.base);
   const pr = indexSnapshot(input.pr);
   try {
@@ -327,9 +334,18 @@ export function checkCycles(input: CycleCheckInput): CycleCheckResult {
         warnings.push(`${s.unresolved} internal import(s) don't resolve in the ${name} snapshot, so its graph is missing edges:\n${s.unresolvedSummary}`);
       }
     }
-    return { ...compareSnapshots(base, pr, input), warnings };
-  } finally {
+    return { result: { ...compareSnapshots(base, pr, input), warnings }, base, pr };
+  } catch (e) {
     base.db.close();
     pr.db.close();
+    throw e;
   }
+}
+
+/** Index both snapshots and compare them. */
+export function checkCycles(input: CycleCheckInput): CycleCheckResult {
+  const { result, base, pr } = checkCyclesOpen(input);
+  base.db.close();
+  pr.db.close();
+  return result;
 }

@@ -453,6 +453,13 @@ jobs:
 | `outcomes` | none | Per-repo overrides, e.g. `cycle_grown:warn` |
 | `fail-on` | `fail` | `warn` fails the job on warnings too |
 | `comment` | `auto` | `always` also comments on a first pass; `never` writes only the job summary |
+| `explain` | `false` | `true` runs the investigation agent on each fail or warn finding (below) |
+| `anthropic-api-key` | none | The agent's key, e.g. `${{ secrets.ANTHROPIC_API_KEY }}`; without one, nothing is explained |
+| `explain-max` | `3` | Findings explained per run |
+| `explain-budget-usd` | `0.5` | Spend cap per finding, retry included |
+| `explain-model` | `claude-opus-5-5` | The agent's model |
+
+**Explaining findings (`explain: true`).** The check alone decides the outcome; the agent only explains. For each fail or warn finding, one Claude Agent SDK session gets the event, the facts the check proved and the PR's diff. It queries the PR's index through the rie MCP server (read-only tools; it can Read only the finding's and the diff's files), within caps on tool calls (10), spend and time. Its answer has three parts: facts (each loop, hop by hop), an explanation, and suggestions. A verifier checks every hop against the graph with no model: the import exists at that line, with that statement, survives compilation, and was or wasn't added by the PR as claimed. A rejected draft gets one retry with the verifier's reasons. If that fails too, the comment shows only the check's own findings, with none of the agent's text. Otherwise the comment adds "Explanation (verified facts)" and "Suggestions (not verified)" under the check's loops. The agent's text is escaped before posting: no HTML and no @-mentions. Over 192 sessions on real element-web and directus findings, 98% were posted, none with a hop the compiled output doesn't back, at a median $0.09 and 19 s each. A PR's first explanation costs $0.12 for a 1-loop finding and about $0.65 for 10 or more loops, and the largest findings can pass the $0.50 cap and fall back (see [Agent evaluation](#agent-evaluation-192-sessions-0-unsupported-claims-posted)). Only the facts are verified: the prose can still overstate (one run said a fixture import would fail at load time, though the imported name is only read inside a function).
 
 Outputs are `outcome` (`fail`, `warn` or `pass`) and `report`, the path of the JSON result. It uses the runner's Node, 20 or later, and doesn't change it for later steps. A PR from a fork gets a read-only token, so it can't comment, and the report stays in the job summary. `.github/workflows/rie-check.yml` runs the action on this repo's own PRs. Its first local run found a 2-file runtime cycle already on `main`, `src/indexer/index.ts` ↔ `src/indexer/resolution.ts`, which passes because old cycles never fail a PR.
 
@@ -503,9 +510,46 @@ The other runs shared the CPU between two checkouts, so their timings aren't com
 
 **Limits.** Dependencies aren't installed at each commit, the same as in the benchmark runs: workspace packages and `matrix-js-sdk` count as external on all three sides. On directus the same `tsconfig.rie.json` is used at every commit, including the older ones. The miner can miss a change that is undone within 25 commits. The labels come from the same event rules applied to the oracle's graph, so the event rules themselves are checked separately by the 16 fixture cases. The whole replay calls no model and costs no tokens. Results are in `benchmarks/results/replay/`. To summarize them, run `npm run replay -- --summarize=<files>`.
 
+### Agent evaluation: 192 sessions, 0 unsupported claims posted
+
+`npm run agent-eval` runs the investigation agent (`explain()`, as the Action runs it) on every fail and warn finding `rie check` made in the history replay: 21 element-web commits and 23 directus commits. Each commit and its parent are checked out in temporary worktrees and indexed fresh. There are also 20 trap tasks, 10 per repo. Each takes one of those findings that has a loop of 3 or more files and adds an `import type` on the PR side, from the loop's second file back to its first. If counted, it would make a 2-file loop. It is erased at compile time, so citing it is wrong. A trap is used only if it leaves `rie check`'s events unchanged and the oracle drops it; all 20 qualified. The seeded line is in the diff the agent reads. That makes 64 findings × 3 runs = 192 sessions, run 2026-10-13 on a Claude Code subscription with the Action's defaults: `claude-opus-5-5`, at most 10 tool calls, $0.50 per finding. Nothing is scored by a model:
+
+- **Unsupported claims** re-check every hop of every posted finding against the emit oracle, the compiled output, not the RIE index the verifier used. A blind spot shared by RIE and its verifier would show here.
+- **Usefulness** checks whether the explanation names both files of an import the PR added, and a file that joined the cycle (by file name).
+- **Traps** check whether any draft cited the seeded import.
+
+| Set | Sessions | Posted (verified) | Fell back | First draft rejected | Unsupported posted | Names added import | Names joined file | Trap cited | Cost total | Median cost | Median time |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| element-web · real | 63 | 63 (100%) | 0 | 0 | **0** | 63/63 | 57/57 | – | $6.44 | $0.067 | 17 s |
+| element-web · trap | 30 | 30 (100%) | 0 | 0 | **0** | 30/30 | 30/30 | 0/30 | $2.88 | $0.067 | 19 s |
+| directus · real | 69 | 66 (96%) | 3 | 1 | **0** | 66/66 | 63/63 | – | $10.88 | $0.096 | 19 s |
+| directus · trap | 30 | 29 (97%) | 1 | 0 | **0** | 29/29 | 29/29 | 0/30 | $4.60 | $0.104 | 27 s |
+| **All** | **192** | **188 (98%)** | **4** | **1** | **0** | 188/188 | 179/179 | 0/60 | **$24.81** | $0.093 | 19 s |
+
+**What held.** No posted finding had a hop the compiled output doesn't back, in 188 posted findings: 516 loops, 3,266 hops. No trap was cited, let alone posted. The one rejected first draft was a copying slip: on the 15th hop of a long directus loop, `server.ts -> create-admin.ts`, the draft said the PR didn't add the import, though it had. The verifier named the hop, and the retry in the same session fixed it. The bad draft never reached a comment.
+
+**What didn't.** All 4 fallbacks are the spend cap on the two largest findings: `6de6ec7944` (18 loops) and `fc9ca4f00e` (54 loops, the largest in the set). The agent has to write every hop back as structured output, and the first run also writes the large prompt to the cache. One turn went past the $0.50 cap, to $0.96–1.32, before the SDK stopped it. The cap is checked between turns, not within one. Each fallback still showed `rie check`'s own facts. Later runs of the same finding, with the prompt cached, fit under the cap.
+
+**Cost depends on loops and on the cache.** Runs 2 and 3 of a finding came a few minutes after run 1 and read the prompt from cache. A PR's first explanation pays run 1's price:
+
+| Loops in the finding | Sessions | Mean cost, run 1 | Mean cost, runs 2–3 |
+|---|---|---|---|
+| 1 | 93 | $0.124 | $0.042 |
+| 2–3 | 45 | $0.205 | $0.069 |
+| 4–9 | 33 | $0.265 | $0.117 |
+| 10–54 | 21 | $0.647 | $0.229 |
+
+**Limits.**
+- **The agent didn't explore.** It made a tool call in 1 session of 192. It explains from the facts `rie check` hands it, and it was never tempted to build its own loop, so the traps tested whether a planted wrong import gets copied, not its judgement.
+- **The usefulness checks are name matches.** They can't tell whether the prose is right. One fixture run claimed an import would fail at load time when the name is only read inside a function. No one read the 188 explanations here, and that manual read is still to do.
+- **The runs share a model and prompt, so they aren't independent.** Three runs of one finding mostly measure the model's variation.
+- **The run hit the subscription's session limit once.** Two sessions failed with "session limit" and were rerun after it reset; only the rerun results are kept.
+
+Results are in `benchmarks/results/agent-eval/`: `full.jsonl` (one record per session) and `pilot.jsonl` (6 sessions run first). Summarize them with `npm run agent-eval -- --summarize=<file>`.
+
 ## Test suite
 
-`npm test` runs **361 tests in 19 files, all passing, plus 22 skipped** (vitest, 2026-10-12). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
+`npm test` runs **407 tests in 23 files, all passing, plus 22 skipped** (vitest, 2026-10-13). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
@@ -517,6 +561,10 @@ The other runs shared the CPU between two checkouts, so their timings aren't com
 | `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, the spend stop, the consecutive-failure stop, turn-capped sessions, cost estimates, arm reuse, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 29 |
 | `src/check/cycle-events.test.ts` | `rie check` against every cycle event case: events, outcome and evidence (incl. which hops the PR added); per-repo outcome overrides | 17 |
 | `src/agent/finding.test.ts` | The investigation agent's finding format: facts from a `rie check` event, refusals (a suggestion marked verified, extra fields, loops that don't chain or close, non-JSON) | 4 |
+| `src/agent/verify.test.ts` | The verifier: every real `rie check` finding verifies (incl. renames and barrels); fabricated facts are refused with a reason (wrong line, misquoted statement, missing import, a loop through a type-only import labelled either way, a wrong added-in-PR claim, a loop the PR didn't touch, wrong event, unknown file) | 16 |
+| `src/agent/runtime.test.ts` | The agent runtime, with the SDK's `query` stubbed (no model): the tool gate (read-only rie tools, Read only on the finding's and diff's files, the tool-call cap), the session's isolation and caps, the finding schema it asks for, that every draft is verified (verified, rejected with reasons, spend stop, incl. one the SDK raises, time stop), long diffs trimmed to the finding's files, and the revise loop (one retry in the same session with the verifier's reasons, inside what's left of the caps; a second rejection or no draft falls back to rie check's own facts) | 16 |
+| `src/agent/pr.test.ts` | The agent on a PR: only fail and warn findings are explained, up to the limit; an agent that throws leaves the check's facts; the comment puts the check's loops first, then "Explanation (verified facts)", then "Suggestions (not verified)", shows none of the agent's text without a verified finding, and escapes HTML and @-mentions | 8 |
+| `benchmarks/agent-eval/score.test.ts` | Agent evaluation scoring: hops re-checked against the emit oracle (missing imports, wrong added-in-PR, renames), usefulness by file name, trap citations, the summary counts | 6 |
 | `src/check/git.test.ts` | `--base-ref`: merge base, renames from git, worktree and link cleanup; relative tsconfig paths; runtime names in the report | 3 |
 | `src/check/report.test.ts` | The PR comment: marker, event table strictest first, loops for fail and warn only, caps on long lists | 3 |
 | `benchmarks/replay/replay.test.ts` | Replay on a 4-commit repo: three-way comparison, unchanged commits, dynamic `import()` (madge disagrees), scoring; seeded cases of all three kinds | 3 |

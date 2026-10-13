@@ -15,14 +15,13 @@
  *   rie-comment.md   the PR comment the GitHub Action would post
  *   result.json      all three tools' outcomes, events and group sizes, and why madge differs
  */
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 import { compareSnapshots, indexSnapshot, type CycleCheckResult, type CycleEvent } from "../../src/check/index.js";
 import { formatMarkdown, formatReport } from "../../src/check/report.js";
 import { madgeGraph, oracleGraph } from "../replay/graphs.js";
+import { checkoutPair, git } from "../replay/worktree.js";
 
 const BENCH_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -34,40 +33,18 @@ const commitArg = flag("commit") ?? "526b4b8c330482a97adba4869b90e5f28f0f0f20";
 const tsconfig = flag("tsconfig") ?? "apps/web/tsconfig.rie.json";
 const tsconfigFrom = flag("tsconfig-from") ?? (flag("repo") ? undefined : join(BENCH_DIR, "candidates-config", "element-web.tsconfig.rie.json"));
 
-function git(cwd: string, gitArgs: string[]): string {
-  const r = spawnSync("git", gitArgs, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  if (r.status !== 0) throw new Error(`git ${gitArgs.join(" ")}: ${r.stderr.trim()}`);
-  return r.stdout.trim();
-}
-
 const commit = git(repo, ["rev-parse", commitArg]);
 const parent = git(repo, ["rev-parse", `${commit}^1`]);
 const subject = git(repo, ["log", "-1", "--format=%s", commit]);
 const out = resolve(flag("out") ?? join(BENCH_DIR, "results", "demo", `${repo.split(/[\\/]/).pop()}-${commit.slice(0, 10)}`));
 
-const sparse = git(repo, ["sparse-checkout", "list"]).split("\n").filter(Boolean);
-const tmp = mkdtempSync(join(tmpdir(), "rie-demo-"));
-const worktrees: string[] = [];
-
-/** A detached worktree at `sha`, sparse like the clone, with the tsconfig in place. */
-function checkout(name: string, sha: string): string {
-  const dir = join(tmp, name);
-  git(repo, ["worktree", "add", "--detach", "--no-checkout", dir, sha]);
-  worktrees.push(dir);
-  if (sparse.length > 0) git(dir, ["sparse-checkout", "set", "--no-cone", ...sparse]);
-  git(dir, ["checkout", "--detach", sha]);
-  const path = join(dir, tsconfig);
-  if (tsconfigFrom) copyFileSync(tsconfigFrom, path);
-  return path;
-}
-
 const eventLine = (e: CycleEvent) =>
   `${e.type} (${e.outcome})${e.base_groups ? `: ${e.base_groups.map((g) => g.length).join("+") || "-"} -> ${(e.pr_groups ?? []).map((g) => g.length).join("+") || "-"} files` : ""}`;
 
+console.log(`${commit.slice(0, 10)} ${subject}\nparent ${parent.slice(0, 10)}`);
+const pair = checkoutPair(repo, parent, commit, tsconfig, tsconfigFrom);
 try {
-  console.log(`${commit.slice(0, 10)} ${subject}\nparent ${parent.slice(0, 10)}`);
-  const baseTsconfig = checkout("base", parent);
-  const prTsconfig = checkout("pr", commit);
+  const { baseTsconfig, prTsconfig } = pair;
 
   // rie check, exactly as `npm run check -- --base=... --pr=...` would run it.
   let t = Date.now();
@@ -126,6 +103,5 @@ try {
   }
   console.log(`\nWrote ${out}`);
 } finally {
-  for (const dir of worktrees) git(repo, ["worktree", "remove", "--force", dir]);
-  rmSync(tmp, { recursive: true, force: true });
+  pair.dispose();
 }

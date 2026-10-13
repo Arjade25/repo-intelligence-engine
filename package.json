@@ -20,6 +20,7 @@
     "screen": "tsx benchmarks/oracle/screen.ts",
     "replay": "tsx benchmarks/replay/cli.ts",
     "demo": "tsx benchmarks/demo/cli.ts",
+    "agent-eval": "tsx benchmarks/agent-eval/cli.ts",
     "taskgen": "tsx benchmarks/taskgen/cli.ts",
     "harness": "tsx benchmarks/harness/cli.ts",
     "regrade": "tsx benchmarks/harness/regrade.ts",
@@ -28,10 +29,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.296",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^11.0.0",
     "typescript": "^5.4.0",
-    "zod": "^3.23.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",

@@ -1,3 +1,5 @@
+import type { PrExplanation } from "../agent/pr.js";
+import type { Finding } from "../agent/finding.js";
 import type { CycleCheckResult, CycleEvent, Evidence } from "./index.js";
 
 /** Plain-text report of a check: one block per event, strictest first, with each finding's loops. */
@@ -54,7 +56,12 @@ const fileList = (files: string[]) =>
  * The PR comment and job summary: a table of every event, then the loops behind
  * each fail or warn. Pass events get a row and nothing else.
  */
-export function formatMarkdown(result: CycleCheckResult, context: { baseCommit?: string; baseRef?: string } = {}): string {
+export function formatMarkdown(
+  result: CycleCheckResult,
+  context: { baseCommit?: string; baseRef?: string } = {},
+  explanations: PrExplanation[] = []
+): string {
+  const explained = new Map(explanations.map((x) => [result.events[x.event_index], x.explanation]));
   const events = [...result.events].sort((a, b) => RANK[a.outcome] - RANK[b.outcome]);
   const lines = [COMMENT_MARKER, `### rie check: ${result.outcome}`, ""];
   const against = context.baseCommit
@@ -75,6 +82,8 @@ export function formatMarkdown(result: CycleCheckResult, context: { baseCommit?:
       lines.push("", `Loop of ${ev.loop.length - 1} files through an import this PR adds:`, "", "```", ...formatLoop(ev, "").slice(1).map((l) => l.trimStart()), "```");
     }
     if (loops.length > MAX_LOOPS) lines.push("", `${loops.length - MAX_LOOPS} more loop(s) in the job log.`);
+    const x = explained.get(e);
+    if (x) lines.push("", ...formatExplanation(x, loops));
   }
   for (const w of result.warnings) lines.push("", `> **Warning:** ${w.split("\n")[0]}`);
   lines.push(
@@ -82,4 +91,50 @@ export function formatMarkdown(result: CycleCheckResult, context: { baseCommit?:
     "<sub>Runtime imports only: type-only imports and dynamic <code>import()</code> don't count, and barrel re-exports do. Cycles already on the base branch never fail a PR.</sub>"
   );
   return lines.join("\n");
+}
+
+/** Longest explanation or suggestion shown; the agent is asked to be brief, this only bounds a runaway. */
+const MAX_PROSE = 3000;
+/** After an @, so "@name" no longer notifies anyone. */
+const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
+
+/**
+ * The agent's text, made safe to post: it is model output written after reading a
+ * diff the PR's author controls. No HTML, no @-mentions that would ping anyone,
+ * and a length cap.
+ */
+export function safeProse(text: string): string {
+  const t = text.trim().replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/@(?=[\w-])/g, `@${ZERO_WIDTH_SPACE}`);
+  return t.length > MAX_PROSE ? `${t.slice(0, MAX_PROSE)}…` : t;
+}
+
+const hopKey = (loop: Finding["facts"]["loops"][number]) => loop.hops.map((h) => `${h.from}>${h.to}:${h.line}`).join("|");
+const evidenceKey = (ev: Evidence) => ev.hops.map((h, i) => `${ev.loop[i]}>${ev.loop[i + 1]}:${h.at.slice(h.at.lastIndexOf(":") + 1)}`).join("|");
+
+/**
+ * The agent's part of one event: its explanation and the loops it cites when they
+ * differ from rie check's (each hop of those passed the verifier), then its
+ * suggestions, which nobody has checked. Without a verified finding, one line says
+ * why there is no explanation, and none of the agent's text is shown.
+ */
+export function formatExplanation(x: PrExplanation["explanation"], evidence: Evidence[] = []): string[] {
+  if (x.source === "deterministic") {
+    const why = x.attempts.length === 0 ? x.reason : x.attempts.at(-1)!.status === "rejected" ? "its draft didn't pass verification" : "it returned no finding";
+    return [`<sub>No explanation for this finding: ${safeProse(why)}.</sub>`];
+  }
+  const f = x.finding;
+  const lines = ["##### Explanation (verified facts)", "", safeProse(f.why_it_matters)];
+  const shown = new Set(evidence.map(evidenceKey));
+  const extra = f.facts.loops.filter((l) => !shown.has(hopKey(l)));
+  if (extra.length > 0) {
+    lines.push("", "Loops the explanation cites (every hop checked against the import graph):");
+    for (const loop of extra.slice(0, MAX_LOOPS)) {
+      const width = Math.max(...loop.hops.map((h) => `${h.from}:${h.line}`.length));
+      lines.push("", "```", ...loop.hops.map((h) => `${`${h.from}:${h.line}`.padEnd(width)}  ${h.statement ?? ""}${h.added_in_pr ? "  (added in this PR)" : ""}`), "```");
+    }
+  }
+  if (f.suggestions.length > 0) {
+    lines.push("", "##### Suggestions (not verified)", "", ...f.suggestions.slice(0, 5).map((sg) => `- ${safeProse(sg.text).replace(/\s*\n\s*/g, " ")}`));
+  }
+  return lines;
 }
