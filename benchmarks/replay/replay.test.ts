@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { firstParentCommits, replay, replaySeeds } from "./replay.js";
-import { summarizeReplay } from "./summarize.js";
+import { mergeRecords, summarizeReplay } from "./summarize.js";
 
 function git(cwd: string, ...args: string[]) {
   const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false", ...args], { cwd, encoding: "utf8" });
@@ -34,7 +34,9 @@ describe("replay (a four-commit history)", () => {
   commit("docs only", { "README.md": "y\n" });
   commit("load a lazily", { "app/src/c.ts": 'export const c = () => import("./a");\n' });
 
-  const records = replay({ repo, tsconfig: "app/tsconfig.json", commits: firstParentCommits(repo, "HEAD", 3), tools: ["rie", "oracle", "madge"] });
+  // Captured now: the seed tests below move the checkout.
+  const history = firstParentCommits(repo, "HEAD", 3);
+  const records = replay({ repo, tsconfig: "app/tsconfig.json", commits: history, tools: ["rie", "oracle", "madge"] });
 
   it("compares each changed commit with its parent three ways, and skips the unchanged one", () => {
     expect(records.map((r) => [r.subject, r.status])).toEqual([
@@ -80,4 +82,38 @@ describe("replay (a four-commit history)", () => {
     expect(typeOnly.tools.madge!.outcome).toBe("pass"); // madge skips `import type`...
     expect(byUsage.tools.madge!.outcome).toBe("fail"); // ...but not an import erased by how it's used
   });
-}, 120_000);
+
+  it("replays dpdm and eslint no-cycle on the same commits (no-cycle by added reports), and merges them with the first run's records", () => {
+    const later = replay({ repo, tsconfig: "app/tsconfig.json", commits: history, tools: ["dpdm", "eslint"] });
+    const [closed, , lazy] = later;
+    expect(closed.tools.dpdm!.events).toEqual(['new_cycle [] [["src/a.ts","src/b.ts","src/c.ts"]]']);
+    // no-cycle reports imports, not groups: the PR fails on reports the base didn't have.
+    expect(closed.tools.eslint!.outcome).toBe("fail");
+    expect(closed.tools.eslint!.events).toEqual([
+      "no_cycle_report_added src/a.ts -> src/b.ts",
+      "no_cycle_report_added src/b.ts -> src/c.ts",
+      "no_cycle_report_added src/c.ts -> src/a.ts",
+    ]);
+    // Both count a dynamic import() by default, like madge.
+    for (const tool of ["dpdm", "eslint"] as const) expect(lazy.tools[tool]!.events).toEqual(["no_regression [] []"]);
+
+    const s = summarizeReplay(mergeRecords([...records, ...later]));
+    expect(s).toMatchObject({ commits: 3, compared: 2 });
+    expect(s.tools.map((t) => [t.tool, t.exact_events, t.compared])).toEqual([
+      ["rie", 2, 2],
+      ["madge", 1, 2],
+      ["dpdm", 1, 2],
+      ["eslint", null, 2],
+    ]);
+  });
+
+  it("seeds: dpdm and eslint no-cycle skip `import type`; only dpdm, which transpiles, drops an import used only as a type", () => {
+    const base = firstParentCommits(repo, "HEAD", 4)[0];
+    const [runtime, typeOnly, byUsage] = replaySeeds({ repo, tsconfig: "app/tsconfig.json", commit: base, count: 1, seed: 1, tools: ["dpdm", "eslint"] });
+    expect(runtime.tools.dpdm!.events).toEqual(runtime.tools.oracle!.events);
+    expect(runtime.tools.eslint!.outcome).toBe("fail");
+    for (const tool of ["dpdm", "eslint"] as const) expect(typeOnly.tools[tool]!.outcome).toBe("pass");
+    expect(byUsage.tools.dpdm!.outcome).toBe("pass");
+    expect(byUsage.tools.eslint!.outcome).toBe("fail");
+  });
+}, 600_000);
