@@ -508,6 +508,20 @@ The labelled events were 20 `cycle_grown`, 2 `new_cycle`, 1 `cycle_shrunk` and 1
 
 The other runs shared the CPU between two checkouts, so their timings aren't comparable.
 
+**dpdm and eslint-plugin-import's `no-cycle`** were run on the same element-web commits on 2026-10-13 (`--tools=dpdm,eslint`; `--summarize` merges them into the earlier runs' records):
+- **dpdm** runs with `-T`, as its README suggests: it transpiles each file first, so type-only imports drop out. Dynamic `import()` still counts, which is its default. It gives a graph, so it's scored like madge.
+- **`no-cycle`** runs with the TypeScript resolver on the same tsconfig, and inline `eslint-disable` comments are ignored (`benchmarks/replay/eslint-no-cycle.config.mjs`). It doesn't give a graph. The rule shares one set of visited modules across all the imports of a file. Once one import's search has visited a module, the file's later imports skip it, so only some of a file's imports into a cycle are reported, and which ones depends on import order. At element-web's benchmark commit it reported 252 imports across at most 26 files, where the compiled code has 115 in its largest cycle. So it is scored the way a team would gate a PR with it: the PR fails when it has a reported import that the base didn't. It has no warn level and no groups, so there is no exact-events score for it.
+
+| element-web | Commits | RIE caught | madge caught | dpdm caught | no-cycle caught | False alarms (RIE / madge / dpdm / no-cycle) | Exact events (RIE / madge / dpdm) |
+|---|---|---|---|---|---|---|---|
+| History (mined + random + recent) | 59 compared (58 for dpdm and no-cycle) | **21 of 21** | 20 | 20 | 21 | **0** / 0 / 2 / 8 | **59 of 59** / 35 of 59 / 30 of 58 |
+
+- **dpdm** missed `a26eb9f578` and reported `526b4b8c33`, the demo commit, as a warn instead of a fail. It raised false alarms on `1c66f0ba01` and `1963f268aa`, where the compiled code's cycles don't change. Its largest group has 146 to 529 files, where the compiled code has 103 to 137. Of its 28 inexact commits, 20 have the right event with the wrong files, 4 the wrong event and 4 the wrong outcome. (madge: 22, 1 and 1.)
+- **`no-cycle`** caught every regression, `526b4b8c33` included. It failed 6 commits whose runtime cycles didn't get worse, for example `3e77974fa0`, where the cycle shrank. Those commits only moved which imports get reported. It also failed 2 `loop_shortened` commits that the label marks as a warn.
+- **Run time**, median per commit in this run: dpdm 37 s, `no-cycle` 101 s.
+
+The last pilot commit, `3af3cbec98`, has no parent in the shallow benchmark clone, so dpdm and `no-cycle` skipped it. Its label is no change. The element-web seeds and directus weren't run with dpdm and `no-cycle`.
+
 **Limits.** Dependencies aren't installed at each commit, the same as in the benchmark runs: workspace packages and `matrix-js-sdk` count as external on all three sides. On directus the same `tsconfig.rie.json` is used at every commit, including the older ones. The miner can miss a change that is undone within 25 commits. The labels come from the same event rules applied to the oracle's graph, so the event rules themselves are checked separately by the 16 fixture cases. The whole replay calls no model and costs no tokens. Results are in `benchmarks/results/replay/`. To summarize them, run `npm run replay -- --summarize=<files>`.
 
 ### Agent evaluation: 192 sessions, 0 unsupported claims posted
@@ -549,7 +563,7 @@ Results are in `benchmarks/results/agent-eval/`: `full.jsonl` (one record per se
 
 ## Test suite
 
-`npm test` runs **407 tests in 23 files, all passing, plus 22 skipped** (vitest, 2026-10-13). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
+`npm test` runs **409 tests in 23 files, all passing, plus 22 skipped** (vitest, 2026-10-13). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
@@ -567,7 +581,7 @@ Results are in `benchmarks/results/agent-eval/`: `full.jsonl` (one record per se
 | `benchmarks/agent-eval/score.test.ts` | Agent evaluation scoring: hops re-checked against the emit oracle (missing imports, wrong added-in-PR, renames), usefulness by file name, trap citations, the summary counts | 6 |
 | `src/check/git.test.ts` | `--base-ref`: merge base, renames from git, worktree and link cleanup; relative tsconfig paths; runtime names in the report | 3 |
 | `src/check/report.test.ts` | The PR comment: marker, event table strictest first, loops for fail and warn only, caps on long lists | 3 |
-| `benchmarks/replay/replay.test.ts` | Replay on a 4-commit repo: three-way comparison, unchanged commits, dynamic `import()` (madge disagrees), scoring; seeded cases of all three kinds | 3 |
+| `benchmarks/replay/replay.test.ts` | Replay on a 4-commit repo: three-way comparison, unchanged commits, dynamic `import()` (madge disagrees), scoring; seeded cases of all three kinds; dpdm and `no-cycle` (scored by added reports) merged into an earlier run's records | 5 |
 | `benchmarks/replay/mine.test.ts` | Mining finds exactly the cycle-changing commits without computing every commit | 1 |
 | `src/mcp-server/index.test.ts` | Each MCP tool's result equals the direct engine call; `reindex` takes no arguments | 10 |
 | `src/indexer/erasure.test.ts` | Value-position analysis, `verbatimModuleSyntax` gate | 8 |
