@@ -5,7 +5,7 @@
  *
  *   npm run demo                      element-web 526b4b8c33 (the defaults below)
  *   npm run demo -- --repo=<git checkout> --commit=<sha> --tsconfig=<path in repo>
- *                   [--tsconfig-from=<file>] [--out=<dir>]
+ *                   [--tsconfig-from=<file>] [--out=<dir>] [--explain]
  *
  * The commit and its first parent are checked out into two temporary worktrees, so
  * the benchmark clone stays where it is. A sparse clone stays sparse: the worktrees
@@ -14,12 +14,17 @@
  *   rie-report.txt   what `rie check` prints
  *   rie-comment.md   the PR comment the GitHub Action would post
  *   result.json      all three tools' outcomes, events and group sizes, and why madge differs
+ *
+ * --explain runs the investigation agent on each fail and warn finding, as the Action
+ * does with explain: true (one Agent SDK session per finding, default caps). Its
+ * explanations go into rie-comment.md and result.json; the outcome doesn't change.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compareSnapshots, indexSnapshot, type CycleCheckResult, type CycleEvent } from "../../src/check/index.js";
 import { formatMarkdown, formatReport } from "../../src/check/report.js";
+import type { PrExplanation } from "../../src/agent/pr.js";
 import { madgeGraph, oracleGraph } from "../replay/graphs.js";
 import { checkoutPair, git } from "../replay/worktree.js";
 
@@ -53,8 +58,29 @@ try {
   const warnings = [rieBase, riePr].filter((s) => s.unresolved > 0).map((s) => `${s.unresolved} internal import(s) don't resolve:\n${s.unresolvedSummary}`);
   const rie: CycleCheckResult = { ...compareSnapshots(rieBase, riePr), warnings };
   const rieMs = Date.now() - t;
-  rieBase.db.close();
-  riePr.db.close();
+
+  // The agent queries the PR's index and the verifier checks against both, so they close after it.
+  let explanations: PrExplanation[] | undefined;
+  try {
+    if (args.includes("--explain") && rie.outcome !== "pass") {
+      const prefix = posix.dirname(tsconfig);
+      const diff = git(pair.prDir, ["diff", "-M", parent, "--", prefix]);
+      // Loaded only here, so a plain demo never loads the Agent SDK.
+      const { explainEvents } = await import("../../src/agent/pr.js");
+      explanations = await explainEvents({
+        result: rie,
+        pr: riePr,
+        base: rieBase,
+        tsconfig: prTsconfig,
+        diff,
+        gitRoot: pair.prDir,
+        log: (line) => console.log(line),
+      });
+    }
+  } finally {
+    rieBase.db.close();
+    riePr.db.close();
+  }
 
   t = Date.now();
   const madgeBase = madgeGraph(baseTsconfig);
@@ -74,7 +100,7 @@ try {
   const report = formatReport(rie);
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, "rie-report.txt"), report + "\n");
-  writeFileSync(join(out, "rie-comment.md"), formatMarkdown(rie, { baseCommit: parent }) + "\n");
+  writeFileSync(join(out, "rie-comment.md"), formatMarkdown(rie, { baseCommit: parent }, explanations) + "\n");
   const summarize = (r: Omit<CycleCheckResult, "warnings">, ms: number) => ({
     outcome: r.outcome,
     events: r.events.map(eventLine),
@@ -87,7 +113,7 @@ try {
     parent,
     subject,
     tsconfig,
-    rie: { ...summarize(rie, rieMs), joined, warnings },
+    rie: { ...summarize(rie, rieMs), joined, warnings, ...(explanations && { explanations }) },
     oracle: summarize(oracle, oracleMs),
     madge: { ...summarize(madge, madgeMs), joined_files_already_in_a_madge_cycle_on_base: alreadyInMadge },
   };
