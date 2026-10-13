@@ -4,14 +4,25 @@
   "description": "A TypeScript repository indexing engine that builds a structural model of a codebase and exposes it to AI coding agents through an MCP server.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Arjade25/repo-intelligence-engine.git"
   },
   "bin": {
+    "rie": "./dist/cli.js",
     "rie-mcp": "./dist/mcp-server/index.js"
   },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "action.yml"
+  ],
   "scripts": {
     "build": "tsc",
     "postbuild": "node -e \"require('fs').mkdirSync('dist/storage',{recursive:true});require('fs').copyFileSync('src/storage/schema.sql','dist/storage/schema.sql')\"",
+    "prepublishOnly": "npm run build",
     "index": "tsx src/indexer/cli.ts",
     "mcp": "tsx src/mcp-server/index.ts",
     "check": "tsx src/check/cli.ts",
@@ -30,7 +41,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^12.11.1",
     "typescript": "^5.4.0",
     "zod": "^4.6.7"
   },
