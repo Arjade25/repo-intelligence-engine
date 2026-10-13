@@ -241,7 +241,9 @@ async function attempt(input: InvestigationInput, state: AttemptState): Promise<
       if (message.type === "result") result = message;
     }
   } catch (e) {
-    stop = abort.signal.aborted ? "timeout" : `error: ${(e as Error).message}`;
+    // The SDK can raise the spend stop instead of returning it as a result; it is the cap working, not a failure.
+    const message = (e as Error).message;
+    stop = abort.signal.aborted ? "timeout" : /maximum budget/i.test(message) ? "error_max_budget_usd" : `error: ${message}`;
   } finally {
     clearTimeout(timer);
   }

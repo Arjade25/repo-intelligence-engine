@@ -159,6 +159,14 @@ describe("agent runtime: every draft is verified", () => {
     expect(await investigate(input(run))).toMatchObject({ status: "no_draft", stop: "error_max_budget_usd" });
   });
 
+  it("reports a spend stop the SDK raises as a spend stop, not an error", async () => {
+    const run = (() =>
+      (async function* () {
+        throw new Error("Claude Code returned an error result: Reached maximum budget ($0.5)");
+      })()) as unknown as InvestigationInput["run"];
+    expect(await investigate(input(run))).toMatchObject({ status: "no_draft", stop: "error_max_budget_usd" });
+  });
+
   it("stops at the time limit", async () => {
     const run = (({ options }: { options: Options }) =>
       (async function* () {

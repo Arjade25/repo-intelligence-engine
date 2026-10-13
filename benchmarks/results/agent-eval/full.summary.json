@@ -1,0 +1,149 @@
+[
+  {
+    "label": "element-web · real",
+    "sessions": 63,
+    "posted": 63,
+    "fallback": 0,
+    "first_draft_rejected": 0,
+    "rescued_by_retry": 0,
+    "no_draft": 0,
+    "unsupported_posted": 0,
+    "names_added_import": 63,
+    "names_joined_file": [
+      57,
+      57
+    ],
+    "trap_cited_first_draft": 0,
+    "trap_posted": 0,
+    "cost_total": 6.4415274999999985,
+    "cost_median": 0.0671928,
+    "wall_median_s": 16.881,
+    "tool_calls_median": 0
+  },
+  {
+    "label": "element-web · trap",
+    "sessions": 30,
+    "posted": 30,
+    "fallback": 0,
+    "first_draft_rejected": 0,
+    "rescued_by_retry": 0,
+    "no_draft": 0,
+    "unsupported_posted": 0,
+    "names_added_import": 30,
+    "names_joined_file": [
+      30,
+      30
+    ],
+    "trap_cited_first_draft": 0,
+    "trap_posted": 0,
+    "cost_total": 2.878156199999999,
+    "cost_median": 0.06670575000000001,
+    "wall_median_s": 19.054000000000002,
+    "tool_calls_median": 0
+  },
+  {
+    "label": "directus · real",
+    "sessions": 69,
+    "posted": 66,
+    "fallback": 3,
+    "first_draft_rejected": 1,
+    "rescued_by_retry": 1,
+    "no_draft": 3,
+    "unsupported_posted": 0,
+    "names_added_import": 66,
+    "names_joined_file": [
+      63,
+      63
+    ],
+    "trap_cited_first_draft": 0,
+    "trap_posted": 0,
+    "cost_total": 10.8830572,
+    "cost_median": 0.0963985,
+    "wall_median_s": 18.898,
+    "tool_calls_median": 0
+  },
+  {
+    "label": "directus · trap",
+    "sessions": 30,
+    "posted": 29,
+    "fallback": 1,
+    "first_draft_rejected": 0,
+    "rescued_by_retry": 0,
+    "no_draft": 1,
+    "unsupported_posted": 0,
+    "names_added_import": 29,
+    "names_joined_file": [
+      29,
+      29
+    ],
+    "trap_cited_first_draft": 0,
+    "trap_posted": 0,
+    "cost_total": 4.602927700000001,
+    "cost_median": 0.1037264,
+    "wall_median_s": 27.378999999999998,
+    "tool_calls_median": 0
+  },
+  {
+    "label": "all · real",
+    "sessions": 132,
+    "posted": 129,
+    "fallback": 3,
+    "first_draft_rejected": 1,
+    "rescued_by_retry": 1,
+    "no_draft": 3,
+    "unsupported_posted": 0,
+    "names_added_import": 129,
+    "names_joined_file": [
+      120,
+      120
+    ],
+    "trap_cited_first_draft": 0,
+    "trap_posted": 0,
+    "cost_total": 17.324584700000006,
+    "cost_median": 0.09129885,
+    "wall_median_s": 17.886,
+    "tool_calls_median": 0
+  },
+  {
+    "label": "all · trap",
+    "sessions": 60,
+    "posted": 59,
+    "fallback": 1,
+    "first_draft_rejected": 0,
+    "rescued_by_retry": 0,
+    "no_draft": 1,
+    "unsupported_posted": 0,
+    "names_added_import": 59,
+    "names_joined_file": [
+      59,
+      59
+    ],
+    "trap_cited_first_draft": 0,
+    "trap_posted": 0,
+    "cost_total": 7.481083899999999,
+    "cost_median": 0.097546,
+    "wall_median_s": 19.791,
+    "tool_calls_median": 0
+  },
+  {
+    "label": "all",
+    "sessions": 192,
+    "posted": 188,
+    "fallback": 4,
+    "first_draft_rejected": 1,
+    "rescued_by_retry": 1,
+    "no_draft": 4,
+    "unsupported_posted": 0,
+    "names_added_import": 188,
+    "names_joined_file": [
+      179,
+      179
+    ],
+    "trap_cited_first_draft": 0,
+    "trap_posted": 0,
+    "cost_total": 24.8056686,
+    "cost_median": 0.0927755,
+    "wall_median_s": 18.546999999999997,
+    "tool_calls_median": 0
+  }
+]
