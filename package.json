@@ -1,7 +1,14 @@
 {
-  "name": "repo-intelligence-engine",
+  "name": "rie-check",
   "version": "0.1.0",
-  "description": "A TypeScript repository indexing engine that builds a structural model of a codebase and exposes it to AI coding agents through an MCP server.",
+  "description": "Fail a pull request that makes TypeScript runtime import cycles worse than its base branch, with the import line behind every loop. Also an MCP server that gives coding agents the import graph.",
+  "keywords": [
+    "typescript",
+    "circular-dependencies",
+    "import-cycles",
+    "github-action",
+    "mcp"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -11,6 +18,7 @@
     "url": "git+https://github.com/Arjade25/repo-intelligence-engine.git"
   },
   "bin": {
+    "rie-check": "./dist/check/cli.js",
     "rie": "./dist/cli.js",
     "rie-mcp": "./dist/mcp-server/index.js"
   },

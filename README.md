@@ -593,7 +593,7 @@ npm run taskgen -- --config=nest            # generate graded tasks -> benchmark
 npm run harness -- --config=nest --runs=5   # run them per tool arm, grade, and summarize
 ```
 
-Built, the same commands are one `rie` command: `rie check`, `rie index`, `rie mcp` (also `rie-mcp`). It needs Node 22 or later; `better-sqlite3` has prebuilt binaries for Node 22 to 26, so installing compiles nothing.
+The npm package is `rie-check`: `npx rie-check --pr=tsconfig.json --base-ref=origin/main` runs the check. Installed, the same commands are one `rie` command: `rie check`, `rie index`, `rie mcp` (also `rie-check` and `rie-mcp`). It needs Node 22 or later; `better-sqlite3` has prebuilt binaries for Node 22 to 26, so installing compiles nothing.
 
 **Releases.** Bump `version` in `package.json`, then push a matching tag (`git tag v0.2.0 && git push origin v0.2.0`). `.github/workflows/release.yml` tests and builds it, pushes Action refs with `dist/` built in (`v0.2.0-action`, and `v0`, which moves to the latest 0.x release), and publishes to npm when the `NPM_TOKEN` secret is set. An Action ref with `dist/` installs only runtime dependencies, and the Agent SDK only when `explain` is on.
 

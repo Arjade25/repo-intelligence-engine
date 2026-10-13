@@ -30,7 +30,7 @@ const positional = args.filter((a) => !a.startsWith("--"));
 const json = args.includes("--json");
 
 function usage(message: string): never {
-  console.error(`${message}\nUsage: rie check --pr=<tsconfig> (--base-ref=<git ref> | --base=<tsconfig>) [--json] | rie check <tsconfig>`);
+  console.error(`${message}\nUsage: rie-check --pr=<tsconfig> (--base-ref=<git ref> | --base=<tsconfig>) [--json] | rie-check <tsconfig>  (or rie check ...)`);
   process.exit(2);
 }
 
