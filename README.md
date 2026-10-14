@@ -548,6 +548,20 @@ None crashed. The run found 4 problems, all fixed:
 
 RIE uses its own TypeScript (5.9), not the repo's. A tsconfig option newer than that, like angular's `stableTypeOrdering`, shows up as a warning. Clean installs from the packed package were checked on Windows only.
 
+**PR mode on immich, with its dependencies installed.** Setup:
+- A partial clone (full history, file contents on demand), with `server/` and the pnpm workspace packages checked out.
+- `pnpm install --filter immich... --ignore-scripts`: 1,257 packages in 64 s.
+- `rie check --pr=server/tsconfig.json --base-ref=<parent>`, the Action's code path, run on 5 real merged PRs that touched `server/src`.
+
+Results:
+- **Real PRs:** all 5 passed in 36–76 s with no warnings. Every internal import resolved on both sides, so linking the PR's `node_modules` into the base worktree works with pnpm's symlinked layout.
+- **Planted regression:** on `main`, one added `import 'src/services/album.service.js'` in `src/utils/date.ts` failed in 37 s as `cycles_merged` (two groups into one of 62 files), with the 2-file loop and the PR comment the Action would post. Clean `main` passed.
+- **Two missed runtime imports, now fixed.** The emit oracle on that checkout agreed on the cycle groups, but found 5 runtime imports that RIE had marked erased. This is the dangerous direction, since a missed runtime edge can hide a cycle. There were two causes:
+  - **A decorated parameter on an undecorated class.** One decorated constructor parameter (immich's NestJS `BaseModule` has only `@Inject(IWorker)`) makes the compiler emit `design:paramtypes` for every parameter. RIE only counted that when the class itself was decorated. The same applies to methods.
+  - **A shorthand property.** An import used only as `{ extraModels }` was read as a declaration, not a use.
+
+  Both are fixtures now, checked against real emit. After the fix, RIE and the oracle agree on all 2,870 import pairs.
+
 ### Agent evaluation: 192 sessions, 0 unsupported claims posted
 
 `npm run agent-eval` runs the investigation agent (`explain()`, as the Action runs it) on every fail and warn finding `rie check` made in the history replay: 21 element-web commits and 23 directus commits. Each commit and its parent are checked out in temporary worktrees and indexed fresh. There are also 20 trap tasks, 10 per repo. Each takes one of those findings that has a loop of 3 or more files and adds an `import type` on the PR side, from the loop's second file back to its first. If counted, it would make a 2-file loop. It is erased at compile time, so citing it is wrong. A trap is used only if it leaves `rie check`'s events unchanged and the oracle drops it; all 20 qualified. The seeded line is in the diff the agent reads. That makes 64 findings × 3 runs = 192 sessions, run 2026-10-13 on a Claude Code subscription with the Action's defaults: `claude-opus-5-5`, at most 10 tool calls, $0.50 per finding. Nothing is scored by a model:
@@ -587,13 +601,13 @@ Results are in `benchmarks/results/agent-eval/`: `full.jsonl` (one record per se
 
 ## Test suite
 
-`npm test` runs **412 tests in 23 files, all passing, plus 22 skipped** (vitest, 2026-10-14). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
+`npm test` runs **418 tests in 23 files, all passing, plus 22 skipped** (vitest, 2026-10-14). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
 | `src/engine/index.test.ts` | All six queries, explicit not-found results, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path and runtime-only `dependency_path`, `find_cycle_through_file` and per-hop evidence for both | 55 |
-| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata; tsconfigs that are missing, malformed, solution-style or have their own errors | 55 |
-| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums, decorator metadata, unresolved internal imports | 35 |
+| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata; tsconfigs that are missing, malformed, solution-style or have their own errors | 58 |
+| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums, decorator metadata (incl. parameter decorators on an undecorated class or method, and shorthand properties), unresolved internal imports | 38 |
 | `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed, trap direction grading | 25 |
 | `benchmarks/oracle/cycle-events.test.ts` | The `rie check` cycle event cases against tsc emit: groups, traps, evidence lines, shortest loops, every new edge cited | 90 (+22 that don't apply to every case) |
 | `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, the spend stop, the consecutive-failure stop, turn-capped sessions, cost estimates, arm reuse, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 29 |

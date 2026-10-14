@@ -139,6 +139,18 @@ describe("indexRepository: emitDecoratorMetadata (fixtures/decorator-metadata-re
     expect(edges[0].is_type_only).toBe(1);
   });
 
+  // Found by the oracle on immich's server; each checked against real emit
+  // (benchmarks/oracle/emitted-edges.test.ts has the same list).
+  it.each([
+    ["paramDecorated.ts", "one decorated constructor parameter emits metadata for all of them, class undecorated"],
+    ["methodParamDecorated.ts", "one decorated method parameter does the same for the method"],
+    ["shorthand.ts", "a shorthand property `{ Dep }` is a value use"],
+  ])("keeps the import in %s: %s", (file) => {
+    const edges = edgesBetween(file, "deps.ts");
+    expect(edges).toHaveLength(1);
+    expect(edges[0].is_type_only).toBe(0);
+  });
+
   // Metadata serializes one entity name, and only a value (a class) survives as a
   // reference - these were 7 of nest's safe-direction over-reports. Each case was
   // checked against real emit (benchmarks/oracle/emitted-edges.test.ts has the same list).

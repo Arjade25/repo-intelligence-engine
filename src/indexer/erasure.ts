@@ -89,6 +89,14 @@ export function analyzeErasure(
       }
       return;
     }
+    // `{ X }` is `{ X: X }`: the identifier is the property's name AND a reference to
+    // the binding X, so isDeclarationName would skip it, and getSymbolAtLocation would
+    // return the property. Found by the oracle on immich (`{ extraModels }`).
+    if (ts.isShorthandPropertyAssignment(node)) {
+      if (isValuePosition(node.name)) record(checker.getShorthandAssignmentValueSymbol(node), options.isolatedModules === true);
+      if (node.objectAssignmentInitializer) visit(node.objectAssignmentInitializer);
+      return;
+    }
     if (ts.isIdentifier(node) && !isDeclarationName(node)) {
       if (isValuePosition(node)) {
         record(checker.getSymbolAtLocation(node), options.isolatedModules === true);
@@ -195,10 +203,13 @@ function isDecoratorMetadataPosition(id: ts.Identifier, strictNullChecks: boolea
     const parent = current.parent;
     if (ts.isParameter(parent) && parent.type === current) {
       if (!isMetadataRoot(id, parent.type, strictNullChecks)) return false;
-      if (hasDecorator(parent)) return true; // a parameter decorator emits metadata too
+      // One decorated parameter is enough for `design:paramtypes` to list every
+      // parameter's type, whether or not the class (or method) is decorated. Found by
+      // the oracle on immich, whose NestJS BaseModule has only `@Inject(IWorker)`.
       const owner = parent.parent;
-      if (ts.isConstructorDeclaration(owner)) return hasDecorator(owner.parent);
-      if (ts.isMethodDeclaration(owner) || ts.isSetAccessorDeclaration(owner)) return hasDecorator(owner);
+      const anyParameterDecorated = ts.isFunctionLike(owner) && owner.parameters.some(hasDecorator);
+      if (ts.isConstructorDeclaration(owner)) return anyParameterDecorated || hasDecorator(owner.parent);
+      if (ts.isMethodDeclaration(owner) || ts.isSetAccessorDeclaration(owner)) return anyParameterDecorated || hasDecorator(owner);
       return false;
     }
     if (
