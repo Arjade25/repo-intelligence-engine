@@ -1,6 +1,6 @@
 import ts from "typescript";
 import type Database from "better-sqlite3";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { clearIndex } from "../storage/db.js";
 import { analyzeErasure, reExportHasValueMeaning } from "./erasure.js";
 import { findUnresolvedInternalImports, type UnresolvedImport } from "./resolution.js";
@@ -14,10 +14,10 @@ import { findUnresolvedInternalImports, type UnresolvedImport } from "./resoluti
  * symbol/edge counts matching a hand-counted expectation, and at least one
  * barrel/side-effect import appears as a file->file edge with to_symbol_id NULL.
  */
-export function indexRepository(db: Database.Database, tsconfigPath: string): { unresolved: UnresolvedImport[] } {
+export function indexRepository(db: Database.Database, tsconfigPath: string): { unresolved: UnresolvedImport[]; configErrors: string[] } {
   clearIndex(db);
 
-  const { fileNames, options } = loadTsconfig(tsconfigPath);
+  const { fileNames, options, configErrors } = loadTsconfig(tsconfigPath);
   const program = ts.createProgram(fileNames, options);
   const checker = program.getTypeChecker();
   const host = ts.createCompilerHost(options);
@@ -39,14 +39,20 @@ export function indexRepository(db: Database.Database, tsconfigPath: string): { 
 
   // Reported, not thrown: a partial index is still useful, but the caller must be
   // able to see that it is partial (see resolution.ts for how this was found).
-  return { unresolved: findUnresolvedInternalImports(program, options) };
+  return { unresolved: findUnresolvedInternalImports(program, options), configErrors };
 }
 
 /** Load a tsconfig.json into a fileNames + options pair (incl. path aliases). Shared
  * with indexer/references.ts, which needs the same inputs to stand up a LanguageService
  * over the identical file set. */
-export function loadTsconfig(tsconfigPath: string): { fileNames: string[]; options: ts.CompilerOptions } {
-  const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+export function loadTsconfig(tsconfigPath: string): { fileNames: string[]; options: ts.CompilerOptions; configErrors: string[] } {
+  const message = (d: ts.Diagnostic) => ts.flattenDiagnosticMessageText(d.messageText, " ");
+  // Forward slashes: on a Windows backslash path, readConfigFile hits a debug assertion
+  // ("Debug Failure. Expected C:/... === C:\...") instead of reporting a JSON error.
+  const configFile = ts.readConfigFile(normalizePath(tsconfigPath), ts.sys.readFile);
+  // A missing or malformed tsconfig must stop here: indexed as is, it gives an empty
+  // graph, and an empty graph has no cycles, so every check would pass.
+  if (configFile.error) throw new Error(`can't use ${tsconfigPath}: ${message(configFile.error)}`);
   // basePath must be ABSOLUTE: with a relative basePath (e.g. when a caller
   // passes "./tsconfig.json", as the MCP server's RIE_TSCONFIG default does),
   // parseJsonConfigFileContent can emit relative fileNames, which would then be
@@ -54,7 +60,18 @@ export function loadTsconfig(tsconfigPath: string): { fileNames: string[]; optio
   // absolute tsconfig path. Everything stored must be cwd-independent.
   const basePath = resolve(dirname(tsconfigPath));
   const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, basePath);
-  return { fileNames: parsed.fileNames, options: parsed.options };
+  if (parsed.fileNames.length === 0) {
+    // A solution-style tsconfig ("files": [] plus references) has no files of its own.
+    const refs = (parsed.projectReferences ?? []).map((r) => normalizePath(relative(process.cwd(), ts.resolveProjectReferencePath(r))));
+    throw new Error(
+      `${tsconfigPath} includes no files` +
+        (refs.length > 0 ? `; it only references other projects. Pass one of their tsconfigs instead: ${refs.join(", ")}` : ". Check its include, files and exclude.")
+    );
+  }
+  // Anything else (an `extends` that isn't installed, an unknown option) still
+  // leaves a program to index, but its options may be incomplete: reported, not thrown.
+  const configErrors = parsed.errors.map(message);
+  return { fileNames: parsed.fileNames, options: parsed.options, configErrors };
 }
 
 /** Normalize path separators so from_file/to_file join cleanly across platforms. */

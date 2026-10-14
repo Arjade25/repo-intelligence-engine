@@ -857,15 +857,17 @@ function filesOfSymbol(db: Database.Database, name: string): string[] {
 export interface ReindexResult {
   /** Internal imports the compiler cannot resolve - non-empty means the index is partial. */
   unresolved_internal_imports: UnresolvedImport[];
+  /** The tsconfig's own errors (say, an `extends` that isn't installed): its options may be incomplete. */
+  config_errors: string[];
 }
 
 export function reindex(db: Database.Database, tsconfigPath: string): ReindexResult {
   const run = db.transaction(() => {
-    const { unresolved } = indexRepository(db, tsconfigPath);
+    const { unresolved, configErrors } = indexRepository(db, tsconfigPath);
     const { fileNames, options } = loadTsconfig(tsconfigPath);
     const service = createLanguageService(fileNames, options);
     indexReferences(db, service);
-    return { unresolved_internal_imports: unresolved };
+    return { unresolved_internal_imports: unresolved, config_errors: configErrors };
   });
   return run();
 }

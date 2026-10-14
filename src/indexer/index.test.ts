@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
 import { fileURLToPath } from "node:url";
 import { openDb } from "../storage/db.js";
 import ts from "typescript";
-import { findTopLevelRequireCalls, indexRepository } from "./index.js";
+import { findTopLevelRequireCalls, indexRepository, loadTsconfig } from "./index.js";
 import type { EdgeRow } from "../storage/db.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -545,5 +545,34 @@ describe("default + named imports in one statement", () => {
 
   it("default + namespace get one edge each", () => {
     expect(edgesFrom("both.ts")).toEqual([[null, 0], ["default", 1]]);
+  });
+});
+
+describe("loadTsconfig refuses what would index nothing, and reports the rest", () => {
+  const dir = () => mkdtempSync(join(tmpdir(), "rie-tsconfig-"));
+
+  it("throws on a missing or malformed tsconfig, instead of indexing an empty graph", () => {
+    expect(() => loadTsconfig(join(dir(), "tsconfig.json"))).toThrow(/can't use .*Cannot read file/);
+    const bad = dir();
+    writeFileSync(join(bad, "tsconfig.json"), `{ "compilerOptions": { "strict": true }`);
+    expect(() => loadTsconfig(join(bad, "tsconfig.json"))).toThrow(/can't use .*'}' expected/);
+  });
+
+  it("throws on a tsconfig with no files, naming the projects a solution-style one references", () => {
+    const root = dir();
+    mkdirSync(join(root, "app"));
+    writeFileSync(join(root, "app", "tsconfig.json"), JSON.stringify({ compilerOptions: { composite: true }, include: ["*.ts"] }));
+    writeFileSync(join(root, "app", "a.ts"), "export const a = 1;\n");
+    writeFileSync(join(root, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./app" }] }));
+    expect(() => loadTsconfig(join(root, "tsconfig.json"))).toThrow(/includes no files; it only references other projects.*app\/tsconfig\.json/);
+  });
+
+  it("reports the tsconfig's own errors, such as an extends that isn't installed, without throwing", () => {
+    const d = dir();
+    writeFileSync(join(d, "tsconfig.json"), JSON.stringify({ extends: "@missing/tsconfig/base.json", include: ["*.ts"] }));
+    writeFileSync(join(d, "a.ts"), "export const a = 1;\n");
+    const { fileNames, configErrors } = loadTsconfig(join(d, "tsconfig.json"));
+    expect(fileNames).toHaveLength(1);
+    expect(configErrors).toEqual([expect.stringMatching(/@missing\/tsconfig\/base\.json' not found/)]);
   });
 });

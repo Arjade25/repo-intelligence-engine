@@ -148,12 +148,13 @@ export function createServer(db: Database.Database, tsconfigPath: string): McpSe
     "Rebuild the whole index for the repo (every file the tsconfig includes - there is no partial rebuild).",
     {},
     async () => {
-      const { unresolved_internal_imports } = reindex(db, tsconfigPath);
+      const { unresolved_internal_imports, config_errors } = reindex(db, tsconfigPath);
       const { c } = db.prepare("SELECT COUNT(*) AS c FROM symbols").get() as { c: number };
       return json({
         ok: true,
         symbols: c,
         ...(unresolved_internal_imports.length > 0 && { warning: describeUnresolved(unresolved_internal_imports) }),
+        ...(config_errors.length > 0 && { tsconfig_errors: config_errors }),
       });
     }
   );

@@ -143,11 +143,13 @@ export interface Snapshot extends CycleGraph {
   stored: Map<string, string>;
   unresolved: number;
   unresolvedSummary: string;
+  /** The tsconfig's own errors (say, an `extends` that isn't installed): its options may be incomplete. */
+  configErrors: string[];
 }
 
 export function indexSnapshot(tsconfigPath: string): Snapshot {
   const db = openDb(":memory:");
-  const { unresolved } = indexRepository(db, tsconfigPath);
+  const { unresolved, configErrors } = indexRepository(db, tsconfigPath);
   const root = normalizePath(dirname(resolve(tsconfigPath))).replace(/\/+$/, "") + "/";
   const stored = new Map<string, string>();
   const rel = (p: string) => {
@@ -173,6 +175,7 @@ export function indexSnapshot(tsconfigPath: string): Snapshot {
     next: successors(edges),
     unresolved: unresolved.length,
     unresolvedSummary: unresolved.length > 0 ? describeUnresolved(unresolved) : "",
+    configErrors,
   };
 }
 
@@ -323,6 +326,16 @@ export interface OpenCheck {
   pr: Snapshot;
 }
 
+/** One warning for a tsconfig's own errors; the first line is what the PR comment shows. */
+export function configWarning(which: string, errors: string[]): string {
+  // A config that isn't found is usually an `extends` from a package that isn't installed.
+  const hint = errors.some((e) => /not found/i.test(e)) ? " (are the dependencies installed?)" : "";
+  return [
+    `${errors.length} error(s) in ${which}, so its compiler options may be incomplete${hint}: ${errors[0]}`,
+    ...errors.slice(1),
+  ].join("\n");
+}
+
 /** Index both snapshots and compare them, leaving both indexes open. */
 export function checkCyclesOpen(input: CycleCheckInput): OpenCheck {
   const base = indexSnapshot(input.base);
@@ -330,6 +343,7 @@ export function checkCyclesOpen(input: CycleCheckInput): OpenCheck {
   try {
     const warnings: string[] = [];
     for (const [name, s] of [["base", base], ["PR", pr]] as const) {
+      if (s.configErrors.length > 0) warnings.push(configWarning(`the ${name} snapshot's tsconfig`, s.configErrors));
       if (s.unresolved > 0) {
         warnings.push(`${s.unresolved} internal import(s) don't resolve in the ${name} snapshot, so its graph is missing edges:\n${s.unresolvedSummary}`);
       }
