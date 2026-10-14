@@ -11,7 +11,7 @@
  *          --outcome=cycle_grown:warn,loop_shortened:fail (per-repo outcome overrides)
  *          --markdown-out=<file>, --json-out=<file> (also write the PR-comment markdown or the
  *          full result there; the GitHub Action posts the first and reads the outcome from the second)
- *          --explain (on a fail or warn, run the investigation agent on each finding; the
+ *          --explain (experimental: on a fail or warn, run the investigation agent on each finding; the
  *          explanations go into the markdown and JSON. It never changes the outcome)
  *            --explain-max=3 (findings explained), --explain-budget=0.5 (USD per finding),
  *            --explain-model=<id>, --diff=<file> (the PR's diff, with --base; --base-ref reads it from git)
