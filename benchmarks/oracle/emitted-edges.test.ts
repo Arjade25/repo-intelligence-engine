@@ -126,6 +126,14 @@ describe("computeEmittedEdges (fixtures/decorator-metadata-repo)", () => {
     expect(hasEdge(edges, "undecorated.ts", "deps.ts")).toBe(false);
   });
 
+  it.each([
+    ["paramDecorated.ts", "one decorated constructor parameter, undecorated class"],
+    ["methodParamDecorated.ts", "one decorated method parameter, undecorated method"],
+    ["shorthand.ts", "a shorthand property `{ Dep }`"],
+  ])("keeps the import when %s: %s", (file) => {
+    expect(hasEdge(edges, file, "deps.ts")).toBe(true);
+  });
+
   it.each(["decoratedInterface.ts", "decoratedAlias.ts", "decoratedGenericArg.ts", "decoratedUnion.ts", "decoratedNullable.ts"])(
     "drops a decorated parameter type that metadata serializes as a global: %s",
     (file) => {

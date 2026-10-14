@@ -1,5 +1,5 @@
 name: rie check
-description: Fail a pull request that makes runtime import cycles worse than its base branch, with the import line behind every loop. The check uses no model; an optional agent explains its findings.
+description: Fail a pull request that makes runtime import cycles worse than its base branch, with the import line behind every loop. The check uses no model; an optional, experimental agent explains its findings.
 author: Arjade25
 
 inputs:
@@ -25,9 +25,10 @@ inputs:
     default: ${{ github.token }}
   explain:
     description: >-
-      "true" runs the investigation agent on each fail or warn finding and adds its explanation to the
-      comment, after rie check's own findings. Only facts that pass the verifier are shown; suggestions are
-      marked unverified. It never changes the outcome. Needs anthropic-api-key.
+      Experimental. "true" runs the investigation agent on each fail or warn finding and adds its explanation
+      to the comment, after rie check's own findings. Only facts that pass the verifier are shown; the prose
+      around them and the suggestions are not checked. It never changes the outcome. Needs anthropic-api-key,
+      and spends up to explain-budget-usd per finding.
     default: "false"
   anthropic-api-key:
     description: API key for the agent, e.g. secrets.ANTHROPIC_API_KEY. Without it (as on PRs from forks) no explanation is added.

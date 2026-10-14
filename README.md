@@ -419,7 +419,7 @@ npm run check -- --pr=<tsconfig> --base=<tsconfig>           # two checkouts you
 npm run check -- tsconfig.json                               # one snapshot: every group and a shortest loop
 ```
 
-With `--base-ref`, the base is the merge base of that ref and `HEAD`, checked out into a temporary git worktree. The PR checkout's `node_modules` is linked into it, because erasure needs imports resolved. `--json` prints the full result, and `--outcome=cycle_grown:warn` overrides an outcome for a repo. The exit code is 1 on fail and 0 on warn or pass. The rules are pinned down as 16 test cases in `src/check/cycle-events.cases.ts`, each checked against a real tsc emit. On nest, the single-snapshot listing finds the same two 4-file groups as the emit oracle, in about 10 s.
+With `--base-ref`, the base is the merge base of that ref and `HEAD`, checked out into a temporary git worktree. The PR checkout's `node_modules` is linked into it, because erasure needs imports resolved. `--json` prints the full result, and `--outcome=cycle_grown:warn` overrides an outcome for a repo. The exit code is 1 on fail and 0 on warn or pass. A setup problem exits 2 with one line on stderr: a tsconfig that's missing or isn't valid JSON, a tsconfig with no files (a solution-style one gets the list of its referenced tsconfigs to pass instead), or a base ref with no merge base (fetch it with its history). Any other error TypeScript reports in the tsconfig, such as an `extends` from a package that isn't installed, becomes a warning, because the compiler options may be incomplete. The rules are pinned down as 16 test cases in `src/check/cycle-events.cases.ts`, each checked against a real tsc emit. On nest, the single-snapshot listing finds the same two 4-file groups as the emit oracle, in about 10 s.
 
 ### GitHub Action
 
@@ -453,13 +453,13 @@ jobs:
 | `outcomes` | none | Per-repo overrides, e.g. `cycle_grown:warn` |
 | `fail-on` | `fail` | `warn` fails the job on warnings too |
 | `comment` | `auto` | `always` also comments on a first pass; `never` writes only the job summary |
-| `explain` | `false` | `true` runs the investigation agent on each fail or warn finding (below) |
+| `explain` | `false` | Experimental: `true` runs the investigation agent on each fail or warn finding (below) |
 | `anthropic-api-key` | none | The agent's key, e.g. `${{ secrets.ANTHROPIC_API_KEY }}`; without one, nothing is explained |
 | `explain-max` | `3` | Findings explained per run |
 | `explain-budget-usd` | `0.5` | Spend cap per finding, retry included |
 | `explain-model` | `claude-opus-5-5` | The agent's model |
 
-**Explaining findings (`explain: true`).** The check alone decides the outcome; the agent only explains. The Claude Agent SDK it runs on is an optional peer dependency, because its platform binary is about 250 MB: the Action installs it only when `explain` is on, and `rie check --explain` from the CLI needs `npm install @anthropic-ai/claude-agent-sdk` (without it, the check reports its findings unexplained). For each fail or warn finding, one Claude Agent SDK session gets the event, the facts the check proved and the PR's diff. It queries the PR's index through the rie MCP server (read-only tools; it can Read only the finding's and the diff's files), within caps on tool calls (10), spend and time. Its answer has three parts: facts (each loop, hop by hop), an explanation, and suggestions. A verifier checks every hop against the graph with no model: the import exists at that line, with that statement, survives compilation, and was or wasn't added by the PR as claimed. A rejected draft gets one retry with the verifier's reasons. If that fails too, the comment shows only the check's own findings, with none of the agent's text. Otherwise the comment adds "Explanation (verified facts)" and "Suggestions (not verified)" under the check's loops. The agent's text is escaped before posting: no HTML and no @-mentions. Over 192 sessions on real element-web and directus findings, 98% were posted, none with a hop the compiled output doesn't back, at a median $0.09 and 19 s each. A PR's first explanation costs $0.12 for a 1-loop finding and about $0.65 for 10 or more loops, and the largest findings can pass the $0.50 cap and fall back (see [Agent evaluation](#agent-evaluation-192-sessions-0-unsupported-claims-posted)). Only the facts are verified: the prose can still overstate (one run said a fixture import would fail at load time, though the imported name is only read inside a function).
+**Explaining findings (`explain: true`, experimental).** The check alone decides the outcome; the agent only explains. It is experimental because only its facts are checked: its prose can overstate, nobody has yet read its 188 posted explanations by hand, and its largest findings can pass the spend cap and fall back (below). The Claude Agent SDK it runs on is an optional peer dependency, because its platform binary is about 250 MB: the Action installs it only when `explain` is on, and `rie check --explain` from the CLI needs `npm install @anthropic-ai/claude-agent-sdk` (without it, the check reports its findings unexplained). For each fail or warn finding, one Claude Agent SDK session gets the event, the facts the check proved and the PR's diff. It queries the PR's index through the rie MCP server (read-only tools; it can Read only the finding's and the diff's files), within caps on tool calls (10), spend and time. Its answer has three parts: facts (each loop, hop by hop), an explanation, and suggestions. A verifier checks every hop against the graph with no model: the import exists at that line, with that statement, survives compilation, and was or wasn't added by the PR as claimed. A rejected draft gets one retry with the verifier's reasons. If that fails too, the comment shows only the check's own findings, with none of the agent's text. Otherwise the comment adds "Explanation (verified facts)" and "Suggestions (not verified)" under the check's loops. The agent's text is escaped before posting: no HTML and no @-mentions. Over 192 sessions on real element-web and directus findings, 98% were posted, none with a hop the compiled output doesn't back, at a median $0.09 and 19 s each. A PR's first explanation costs $0.12 for a 1-loop finding and about $0.65 for 10 or more loops, and the largest findings can pass the $0.50 cap and fall back (see [Agent evaluation](#agent-evaluation-192-sessions-0-unsupported-claims-posted)). Only the facts are verified: the prose can still overstate (one run said a fixture import would fail at load time, though the imported name is only read inside a function).
 
 Outputs are `outcome` (`fail`, `warn` or `pass`) and `report`, the path of the JSON result. It uses the runner's Node, 22 or later, and doesn't change it for later steps. A PR from a fork gets a read-only token, so it can't comment, and the report stays in the job summary. `.github/workflows/rie-check.yml` runs the action on this repo's own PRs. Its first local run found a 2-file runtime cycle already on `main`, `src/indexer/index.ts` ↔ `src/indexer/resolution.ts`, which passes because old cycles never fail a PR.
 
@@ -524,6 +524,44 @@ The last pilot commit, `3af3cbec98`, has no parent in the shallow benchmark clon
 
 **Limits.** Dependencies aren't installed at each commit, the same as in the benchmark runs: workspace packages and `matrix-js-sdk` count as external on all three sides. On directus the same `tsconfig.rie.json` is used at every commit, including the older ones. The miner can miss a change that is undone within 25 commits. The labels come from the same event rules applied to the oracle's graph, so the event rules themselves are checked separately by the 16 fixture cases. The whole replay calls no model and costs no tokens. Results are in `benchmarks/results/replay/`. To summarize them, run `npm run replay -- --summarize=<files>`.
 
+### Other repos: each one's own tsconfig
+
+On 2026-10-14, `rie check` in single-snapshot mode ran on 9 tsconfigs from 8 repos outside the replay, each the repo's own config, not one written for the benchmark. The clones are sparse and shallow, and no dependencies were installed, so imports of packages, generated files and files outside the checkout don't resolve. The warning names each one.
+
+| tsconfig | Files | What it tests | Time | Cycle groups | Unresolved internal imports |
+|---|---|---|---|---|---|
+| outline `tsconfig.json` | 2,221 | path aliases | 49 s | 7 | 1 (outside the checkout) |
+| immich `server/tsconfig.json` | 677 | path aliases | 16 s | 4 | 0 |
+| joplin `packages/lib/tsconfig.json` | 727 | `extends` a local file | 11 s | 6 | 2 (outside the checkout) |
+| pixijs `tsconfig.json` | 946 | path aliases | 24 s | 0 | 74 (a test-utils alias outside the checkout) |
+| n8n `packages/cli/tsconfig.json` | 3,898 | `extends` 2 configs from an uninstalled package; project references | 137 s | 1 | 1 (a JSON import) |
+| TypeScript `src/compiler/tsconfig.json` | 77 | project references; one large namespace barrel | 15 s | 1 | 1 (a generated file) |
+| TypeScript `src/tsconfig.json` | 0 | solution-style: `files: []` plus 13 references | – | – | – |
+| babylon `tsconfig.json` | 4,650 | 67 path aliases | 91 s | 2 | 588 (generated shader files) |
+| angular `packages/tsconfig.json` | 781 | path aliases; an option from a newer TypeScript | 24 s | 0 | 299 (mostly `rxjs`, not installed) |
+
+None crashed. The run found 4 problems, all fixed:
+- **A missing or malformed tsconfig was indexed as an empty graph.** With no files there are no cycles, so every PR would pass. Now it's an error.
+- **The solution-style tsconfig was checked as 0 files**, with no warning. Now it's an error that lists the 13 referenced tsconfigs.
+- **n8n's two missing `extends` were ignored**, so the check ran without the options they set. Now they're a warning.
+- **On Windows, a malformed tsconfig passed with a backslash path** made TypeScript fail an internal assertion ("Debug Failure") instead of reporting the JSON error. Paths are now normalized first.
+
+RIE uses its own TypeScript (5.9), not the repo's. A tsconfig option newer than that, like angular's `stableTypeOrdering`, shows up as a warning. Clean installs from the packed package were checked on Windows only.
+
+**PR mode on immich, with its dependencies installed.** Setup:
+- A partial clone (full history, file contents on demand), with `server/` and the pnpm workspace packages checked out.
+- `pnpm install --filter immich... --ignore-scripts`: 1,257 packages in 64 s.
+- `rie check --pr=server/tsconfig.json --base-ref=<parent>`, the Action's code path, run on 5 real merged PRs that touched `server/src`.
+
+Results:
+- **Real PRs:** all 5 passed in 36–76 s with no warnings. Every internal import resolved on both sides, so linking the PR's `node_modules` into the base worktree works with pnpm's symlinked layout.
+- **Planted regression:** on `main`, one added `import 'src/services/album.service.js'` in `src/utils/date.ts` failed in 37 s as `cycles_merged` (two groups into one of 62 files), with the 2-file loop and the PR comment the Action would post. Clean `main` passed.
+- **Two missed runtime imports, now fixed.** The emit oracle on that checkout agreed on the cycle groups, but found 5 runtime imports that RIE had marked erased. This is the dangerous direction, since a missed runtime edge can hide a cycle. There were two causes:
+  - **A decorated parameter on an undecorated class.** One decorated constructor parameter (immich's NestJS `BaseModule` has only `@Inject(IWorker)`) makes the compiler emit `design:paramtypes` for every parameter. RIE only counted that when the class itself was decorated. The same applies to methods.
+  - **A shorthand property.** An import used only as `{ extraModels }` was read as a declaration, not a use.
+
+  Both are fixtures now, checked against real emit. After the fix, RIE and the oracle agree on all 2,870 import pairs.
+
 ### Agent evaluation: 192 sessions, 0 unsupported claims posted
 
 `npm run agent-eval` runs the investigation agent (`explain()`, as the Action runs it) on every fail and warn finding `rie check` made in the history replay: 21 element-web commits and 23 directus commits. Each commit and its parent are checked out in temporary worktrees and indexed fresh. There are also 20 trap tasks, 10 per repo. Each takes one of those findings that has a loop of 3 or more files and adds an `import type` on the PR side, from the loop's second file back to its first. If counted, it would make a 2-file loop. It is erased at compile time, so citing it is wrong. A trap is used only if it leaves `rie check`'s events unchanged and the oracle drops it; all 20 qualified. The seeded line is in the diff the agent reads. That makes 64 findings × 3 runs = 192 sessions, run 2026-10-13 on a Claude Code subscription with the Action's defaults: `claude-opus-5-5`, at most 10 tool calls, $0.50 per finding. Nothing is scored by a model:
@@ -563,13 +601,13 @@ Results are in `benchmarks/results/agent-eval/`: `full.jsonl` (one record per se
 
 ## Test suite
 
-`npm test` runs **409 tests in 23 files, all passing, plus 22 skipped** (vitest, 2026-10-13). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
+`npm test` runs **418 tests in 23 files, all passing, plus 22 skipped** (vitest, 2026-10-14). The skipped ones are oracle checks that apply only to some cycle event cases. The tests run against small fixture repos under `fixtures/`: sample, type-only, decorator-metadata, verbatim-module-syntax, const-enum, esm-alias and taskgen. The cycle event cases and the git test write their own repos to a temp directory. None of the tests needs a cloned benchmark target.
 
 | File | Covers | Tests |
 |---|---|---|
 | `src/engine/index.test.ts` | All six queries, explicit not-found results, path normalization and suffix matching, ambiguity notes, runtime vs type-only cycles, file-path and runtime-only `dependency_path`, `find_cycle_through_file` and per-hop evidence for both | 55 |
-| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata | 52 |
-| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums, decorator metadata, unresolved internal imports | 35 |
+| `src/indexer/index.test.ts` | Symbols, file-level edges, NULL-symbol edges, per-edge erasure, bare `require()`, const enums, decorator metadata; tsconfigs that are missing, malformed, solution-style or have their own errors | 58 |
+| `benchmarks/oracle/emitted-edges.test.ts` | Emit-based ground truth, including dynamic `import()`, NodeNext, bare `require()`, const enums, decorator metadata (incl. parameter decorators on an undecorated class or method, and shorthand properties), unresolved internal imports | 38 |
 | `benchmarks/taskgen/generate.test.ts` | Every task category, `--min-path`, broken re-export filter, determinism for a given seed, trap direction grading | 25 |
 | `benchmarks/oracle/cycle-events.test.ts` | The `rie check` cycle event cases against tsc emit: groups, traps, evidence lines, shortest loops, every new edge cited | 90 (+22 that don't apply to every case) |
 | `benchmarks/harness/harness.test.ts` | Prompt building, answer parsing, grading (incl. monorepo git-root paths), summaries, `--resume`, the spend stop, the consecutive-failure stop, turn-capped sessions, cost estimates, arm reuse, per-arm CLI settings for bash-madge, answer-leakage audit (stub agent) | 29 |
@@ -655,3 +693,7 @@ Spending controls for the harness. Before launching, it prints an estimated cost
 - `--pilot` runs each task once, to catch a prompt or grader bug before the full run. Its results are named `<repo>-pilot-*`. The default is 3 runs per task; use `--runs=5` only for numbers you publish.
 - `--reuse=baseline=<results.json>` uses an unchanged arm's sessions from an earlier run instead of paying for new ones. It is refused if any session is missing or any task's prompt changed since that run, and `meta.reused` records the source and its CLI version.
 - `--max-turns=N` caps each session (default 150, about twice the most any session has used; `0` turns it off). A capped session counts as wrong and is reported in its own `capped` column, so a cap that is too tight shows up instead of quietly favoring the cheaper arm.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

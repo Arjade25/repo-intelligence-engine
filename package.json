@@ -9,6 +9,8 @@
     "github-action",
     "mcp"
   ],
+  "author": "Aryan Jade",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22"

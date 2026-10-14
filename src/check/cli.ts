@@ -11,18 +11,28 @@
  *          --outcome=cycle_grown:warn,loop_shortened:fail (per-repo outcome overrides)
  *          --markdown-out=<file>, --json-out=<file> (also write the PR-comment markdown or the
  *          full result there; the GitHub Action posts the first and reads the outcome from the second)
- *          --explain (on a fail or warn, run the investigation agent on each finding; the
+ *          --explain (experimental: on a fail or warn, run the investigation agent on each finding; the
  *          explanations go into the markdown and JSON. It never changes the outcome)
  *            --explain-max=3 (findings explained), --explain-budget=0.5 (USD per finding),
  *            --explain-model=<id>, --diff=<file> (the PR's diff, with --base; --base-ref reads it from git)
- * Exit code: 1 when the outcome is fail, 0 for warn and pass, 2 on a usage error.
+ * Exit code: 1 when the outcome is fail, 0 for warn and pass, 2 on a usage or setup error
+ * (a missing tsconfig, an unknown ref): one line on stderr; RIE_DEBUG=1 adds the stack.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { PrExplanation } from "../agent/pr.js";
-import { checkCycles, checkCyclesOpen, DEFAULT_OUTCOMES, indexSnapshot, loopEvidence, type CycleCheckResult, type CycleEventType, type Outcome } from "./index.js";
+import { checkCycles, checkCyclesOpen, configWarning, DEFAULT_OUTCOMES, indexSnapshot, loopEvidence, type CycleCheckResult, type CycleEventType, type Outcome } from "./index.js";
 import { checkAgainstRef, checkAgainstRefOpen, prDiff } from "./git.js";
 import { formatLoop, formatMarkdown, formatReport } from "./report.js";
+
+// A missing tsconfig, an unknown ref, a git failure: one line and exit 2, never a stack
+// trace, and never 1, which means the check failed the PR. RIE_DEBUG=1 shows the stack.
+const die = (e: unknown) => {
+  console.error(`rie-check: ${process.env.RIE_DEBUG ? (e as Error).stack : ((e as Error).message ?? String(e))}`);
+  process.exit(2);
+};
+process.on("uncaughtException", die);
+process.on("unhandledRejection", die);
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -58,13 +68,14 @@ if (!pr) {
     const to = (snapshot.next.get(first) ?? []).find((n) => files.includes(n))!;
     return { files, loop: loopEvidence(snapshot, first, to) };
   });
-  if (json) console.log(JSON.stringify({ groups, unresolved_internal_imports: snapshot.unresolved }, null, 2));
+  if (json) console.log(JSON.stringify({ groups, unresolved_internal_imports: snapshot.unresolved, config_errors: snapshot.configErrors }, null, 2));
   else {
     console.log(`${groups.length} runtime cycle group(s) in ${dirname(positional[0])}`);
     for (const g of groups) {
       console.log(`\n${g.files.length} files: ${g.files.length <= 8 ? g.files.join(", ") : `${g.files.slice(0, 8).join(", ")}, ...`}`);
       if (g.loop) console.log(formatLoop(g.loop).join("\n"));
     }
+    if (snapshot.configErrors.length > 0) console.log(`\nWARNING: ${configWarning("the tsconfig", snapshot.configErrors)}`);
     if (snapshot.unresolved > 0) console.log(`\nWARNING: ${snapshot.unresolved} internal import(s) don't resolve:\n${snapshot.unresolvedSummary}`);
   }
   snapshot.db.close();

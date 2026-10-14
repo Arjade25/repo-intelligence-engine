@@ -77,7 +77,16 @@ export function prDiff(gitRoot: string, baseCommit: string): string {
 export function checkAgainstRefOpen(input: GitCheckInput): OpenGitCheck {
   const prTsconfig = resolve(input.pr);
   const gitRoot = resolve(git(dirname(prTsconfig), ["rev-parse", "--show-toplevel"]));
-  const baseCommit = git(gitRoot, ["merge-base", input.baseRef, "HEAD"]);
+  let baseCommit: string;
+  try {
+    baseCommit = git(gitRoot, ["merge-base", input.baseRef, "HEAD"]);
+  } catch (e) {
+    // The usual cause in CI: a shallow checkout, or a base branch that was never fetched.
+    throw new Error(
+      `no merge base between ${input.baseRef} and HEAD. Fetch the base branch with its history ` +
+        `(actions/checkout with fetch-depth: 0, or git fetch --unshallow origin). ${(e as Error).message}`
+    );
+  }
   const tsconfigRel = relative(gitRoot, prTsconfig);
   const prefix = dirname(tsconfigRel) === "." ? "" : dirname(tsconfigRel);
   const renames = parseRenames(git(gitRoot, ["diff", "-M", "--name-status", baseCommit]), prefix);
