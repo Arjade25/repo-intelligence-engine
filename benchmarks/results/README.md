@@ -5,7 +5,7 @@ The JSON files at this level each record one invocation of `benchmarks/run.ts`
 tool calls, tokens where recorded, whether the oracle answer was located) plus the
 per-arm medians. `harness/` holds the graded, generated-task runs from
 `npm run harness`; see [below](#harness--generated-graded-tasks). These are the raw
-numbers behind the Benchmark section of the project README. Nothing here is hand-edited.
+numbers behind the agent benchmark in [docs/agent-benchmark.md](../../docs/agent-benchmark.md). Nothing here is hand-edited.
 
 `.log` files are the console transcript of the same runs and are gitignored — the
 JSON is the record of truth.
@@ -16,12 +16,12 @@ JSON is the record of truth.
 |---|---|
 | `2026-08-01T08-38-23-112Z.json` | Single smoke run (1 task, N=1) confirming the harness drove the assisted arm correctly before committing to the full matrix. |
 | `2026-08-01T08-54-50-299Z.json` | **First full matrix** — 6 tasks × 2 arms × 5 runs. Showed `driver-impact` regressing (assisted median 5 calls vs. baseline 3, spread up to 11), which transcripts traced to the path-resolution bug. |
-| `2026-08-04T18-20-51-467Z.json` | **`driver-impact` re-run after the fix** — same task, 5 runs per arm. Assisted median drops to 2 (baseline 3) and the 3–11 spread collapses to 2–3. This is the row in the README table. |
+| `2026-08-04T18-20-51-467Z.json` | **`driver-impact` re-run after the fix** — same task, 5 runs per arm. Assisted median drops to 2 (baseline 3) and the 3–11 spread collapses to 2–3. This is the row in the agent benchmark's table. |
 
 | `2026-09-10T17-58-30-016Z.json` | Single pass (3 new tasks, N=1) over the "where it does" tasks: `entity-decorator-references`, `mongofindmany-datasource-path`, `runtime-cycle-check`. The first file to record tokens. Superseded by the next file. |
-| `2026-09-10T18-37-02-368Z.json` | **The same 3 tasks × 2 arms × 5 runs.** These are the README's "Where it does" rows (7-hop path 21 → 1 calls, cycle check 22 → 1 calls). |
+| `2026-09-10T18-37-02-368Z.json` | **The same 3 tasks × 2 arms × 5 runs.** These are the agent benchmark's "Where it does" rows (7-hop path 21 → 1 calls, cycle check 22 → 1 calls). |
 
-The other five rows in the README's first TypeORM table come from the first full matrix; only
+The other five rows in the agent benchmark's first TypeORM table come from the first full matrix; only
 `driver-impact` changed after the fix, and it was re-measured rather than re-derived. The
 2026-08 files predate token counting, so they report tool calls only.
 
