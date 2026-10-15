@@ -20,9 +20,9 @@
     "url": "git+https://github.com/Arjade25/repo-intelligence-engine.git"
   },
   "bin": {
-    "rie-check": "./dist/check/cli.js",
-    "rie": "./dist/cli.js",
-    "rie-mcp": "./dist/mcp-server/index.js"
+    "rie-check": "dist/check/cli.js",
+    "rie": "dist/cli.js",
+    "rie-mcp": "dist/mcp-server/index.js"
   },
   "files": [
     "dist",
