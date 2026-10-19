@@ -4,6 +4,11 @@ import { dirname, relative, resolve } from "node:path";
 import { clearIndex } from "../storage/db.js";
 import { analyzeErasure, reExportHasValueMeaning } from "./erasure.js";
 import { findUnresolvedInternalImports, type UnresolvedImport } from "./resolution.js";
+import { findTopLevelRequireCalls, normalizePath } from "./source-utils.js";
+
+// Re-exported so existing importers keep working; resolution.ts imports source-utils
+// directly, which keeps index.ts <-> resolution.ts out of a runtime cycle.
+export { findTopLevelRequireCalls, normalizePath };
 
 /**
  * Batch indexer (plan §4, mode 1): a one-shot ts.Program walked once to populate
@@ -72,11 +77,6 @@ export function loadTsconfig(tsconfigPath: string): { fileNames: string[]; optio
   // leaves a program to index, but its options may be incomplete: reported, not thrown.
   const configErrors = parsed.errors.map(message);
   return { fileNames: parsed.fileNames, options: parsed.options, configErrors };
-}
-
-/** Normalize path separators so from_file/to_file join cleanly across platforms. */
-export function normalizePath(p: string): string {
-  return p.replace(/\\/g, "/");
 }
 
 const SYMBOL_KINDS = ["class", "function", "interface", "type", "const", "enum"] as const;
@@ -343,44 +343,4 @@ const MAX_STATEMENT_CHARS = 200;
 function statementText(node: ts.Node, sourceFile: ts.SourceFile): string {
   const text = node.getText(sourceFile).replace(/\s+/g, " ").trim();
   return text.length > MAX_STATEMENT_CHARS ? `${text.slice(0, MAX_STATEMENT_CHARS - 1)}…` : text;
-}
-
-/**
- * Every `require("literal")` call that runs when the module loads - i.e. not
- * nested inside a function, method, accessor, constructor or static block. A
- * require() inside a function is a lazy load: it can't take part in an
- * initialization cycle, and counting it would also turn every downleveled dynamic
- * `import()` (`Promise.resolve().then(() => require(X))`) into a hard edge. This is
- * the same boundary rule benchmarks/oracle/emitted-edges.ts applies to emitted
- * JS; the two are kept separate on purpose so the oracle can catch bugs here.
- */
-export function findTopLevelRequireCalls(sourceFile: ts.SourceFile): ts.StringLiteral[] {
-  const out: ts.StringLiteral[] = [];
-
-  const isFunctionBoundary = (node: ts.Node): boolean =>
-    ts.isFunctionDeclaration(node) ||
-    ts.isFunctionExpression(node) ||
-    ts.isArrowFunction(node) ||
-    ts.isMethodDeclaration(node) ||
-    ts.isGetAccessorDeclaration(node) ||
-    ts.isSetAccessorDeclaration(node) ||
-    ts.isConstructorDeclaration(node) ||
-    ts.isClassStaticBlockDeclaration(node);
-
-  const visit = (node: ts.Node): void => {
-    if (isFunctionBoundary(node)) return;
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "require" &&
-      node.arguments.length === 1 &&
-      ts.isStringLiteral(node.arguments[0])
-    ) {
-      out.push(node.arguments[0]);
-    }
-    ts.forEachChild(node, visit);
-  };
-
-  ts.forEachChild(sourceFile, visit);
-  return out;
 }

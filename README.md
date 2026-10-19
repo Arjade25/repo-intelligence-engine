@@ -16,8 +16,10 @@ Most cycle checkers tell you a cycle exists. RIE Check reports which cycle chang
 |---|---|---|---|
 | **RIE Check** | **21** | **0** | **59 of 59** |
 | madge | 20 | 0 | 35 of 59 |
-| dpdm (`-T`) | 20 | 2 | 30 of 58 |
+| dpdm (`-T`) | 20 | 2 | 30 of 58* |
 | eslint-plugin-import `no-cycle` | 21 | 8 | – (it reports imports, not cycles) |
+
+\* dpdm and `no-cycle` skipped one commit whose parent isn't in the shallow benchmark clone. Its label is no change, so it doesn't affect the regression or false-alarm counts.
 
 - **madge** counts dynamic `import()` and imports used only as types, so its cycle groups are too big. It reported a cycle change that doesn't match the compiled code in 24 of 59 commits, mostly the right event with the wrong files. It also failed all 10 seeded PRs that add an import used only as a type; RIE Check failed none.
 - **dpdm** drops type-only imports but still counts dynamic `import()`. It raised 2 false alarms and got the cycle change wrong in 28 of 58 commits.
@@ -85,7 +87,7 @@ jobs:
 | `explain-budget-usd` | `0.5` | Spend cap per finding, retry included |
 | `explain-model` | `claude-opus-5-5` | The agent's model |
 
-Outputs are `outcome` (`fail`, `warn` or `pass`) and `report`, the path of the JSON result. It uses the runner's Node, 22 or later, and doesn't change it for later steps. A PR from a fork gets a read-only token, so it can't comment, and the report stays in the job summary. `.github/workflows/rie-check.yml` runs the action on this repo's own PRs. Its first local run found a 2-file runtime cycle already on `main`, `src/indexer/index.ts` ↔ `src/indexer/resolution.ts`, which passes because old cycles never fail a PR.
+Outputs are `outcome` (`fail`, `warn` or `pass`) and `report`, the path of the JSON result. It uses the runner's Node, 22 or later, and doesn't change it for later steps. A PR from a fork gets a read-only token, so it can't comment, and the report stays in the job summary. `.github/workflows/rie-check.yml` runs the action on this repo's own PRs. Its first local run found a 2-file runtime cycle already on `main`, `src/indexer/index.ts` ↔ `src/indexer/resolution.ts`, which passed because old cycles never fail a PR. The PR that removed it reported `cycle_resolved`, and the repo now has no runtime cycles.
 
 The Action runs the check on a pull request, writes the report to the job summary, and fails the job on a fail outcome. On a fail or warn it posts a PR comment, which later pushes update in place. A pass doesn't get a new comment, but it does update an existing one, so a fixed PR shows it's fixed.
 

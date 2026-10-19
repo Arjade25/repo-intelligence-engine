@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { findTopLevelRequireCalls, normalizePath } from "./index.js";
+import { findTopLevelRequireCalls, normalizePath } from "./source-utils.js";
 
 /**
  * Input validation: find imports that point INTO the repo (relative, or matching a
